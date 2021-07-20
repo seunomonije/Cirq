@@ -69,6 +69,19 @@ export class BlochSphereScene extends Scene {
   public addSceneToHTMLContainer(id: string) {
     document.getElementById(id)!.appendChild(this.renderer.domElement);
   }
+
+  /**
+   * Sets the camera to the designated coordinates.
+   * @param x The desired x coordinate of the camera 
+   * @param y The desired y coordinate of the camera
+   * @param z The desired z coordinate of the camera
+   */
+  public setCamera(x?: number, y?: number, z?: number) {
+    this.camera.position.x = x || 0;
+    this.camera.position.y = y || 0;
+    this.camera.position.z = z || 0;
+  }
+
   /**
    * Initialization helper function. Also sets the starting
    * position of the camera.

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {Vector3, LineDashedMaterial, BufferGeometry, Line, Group} from 'three';
+import {Vector3, LineBasicMaterial, BufferGeometry, Line, Group} from 'three';
 
 interface Axis {
   points: [Vector3, Vector3];
@@ -49,7 +49,7 @@ export class Axes extends Group {
    * them to the group.
    */
   private generateAxes() {
-    const LINE_WIDTH = 1.5;
+    const LINE_WIDTH = 3;
     const xPoints: [Vector3, Vector3] = [
       new Vector3(-this.halfLength, 0, 0),
       new Vector3(this.halfLength, 0, 0),
@@ -89,13 +89,10 @@ export class Axes extends Group {
   private asLine(axis: Axis): Line {
     return new Line(
       new BufferGeometry().setFromPoints(axis.points),
-      new LineDashedMaterial({
+      new LineBasicMaterial({
         color: axis.hexColor,
         linewidth: axis.lineWidth,
-        scale: 1,
-        dashSize: 0.1,
-        gapSize: 0.1,
       })
-    ).computeLineDistances();
+    )
   }
 }

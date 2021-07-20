@@ -32,11 +32,12 @@ export function renderBlochSphere(
   hMeridians = 7,
   vMeridians = 4
 ) {
+  const blochSphere = new BlochSphere(radius, hMeridians, vMeridians);
+  return blochSphere;
+}
+
+export function createScene(containerId: string) {
   const scene = new BlochSphereScene();
   scene.addSceneToHTMLContainer(containerId);
-
-  const blochSphere = new BlochSphere(radius, hMeridians, vMeridians);
-  scene.add(blochSphere);
-
-  return blochSphere;
+  return scene;
 }
