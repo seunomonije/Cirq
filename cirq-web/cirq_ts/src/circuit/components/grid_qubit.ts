@@ -32,7 +32,7 @@ export class GridQubit extends Group {
   readonly row: number;
   readonly col: number;
   readonly moments: number;
-
+  private operationsMap: Map<number, (X3DSymbol | BoxGate3DSymbol | Control3DSymbol | ConnectionLine)>;
   /**
    * Class constructor.
    * @param row The row of the GridQubit
@@ -46,6 +46,7 @@ export class GridQubit extends Group {
     this.row = row;
     this.col = col;
     this.moments = moments;
+    this.operationsMap = new Map();
     this.createLine();
     this.addLocationLabel();
   }
@@ -62,12 +63,14 @@ export class GridQubit extends Group {
       const mesh = new X3DSymbol(color);
       mesh.position.set(this.row, moment, this.col);
       this.add(mesh);
+      this.operationsMap.set(moment, mesh);
       return;
     }
 
     const mesh = new BoxGate3DSymbol(label, color);
     mesh.position.set(this.row, moment, this.col);
     this.add(mesh);
+    this.operationsMap.set(moment, mesh);
   }
 
   /**
@@ -79,6 +82,7 @@ export class GridQubit extends Group {
     const mesh = new Control3DSymbol();
     mesh.position.set(this.row, moment, this.col);
     this.add(mesh);
+    this.operationsMap.set(moment, mesh);
   }
 
   /**
@@ -93,7 +97,35 @@ export class GridQubit extends Group {
       new Vector3(this.row, moment, this.col),
       new Vector3(row, moment, col),
     ];
-    this.add(new ConnectionLine(coords[0], coords[1]));
+    const mesh = new ConnectionLine(coords[0], coords[1])
+    this.add(mesh);
+    this.operationsMap.set(moment, mesh);
+  }
+
+  showAllMoments() {
+    this.operationsMap.forEach((value) =>{
+      value.show();
+    });
+  }
+
+  hideMomentBefore(moment: number){
+    this.operationsMap.forEach((value) => {
+      if (moment < (value.position.y)) {
+        value.blur();
+      } else {
+        value.show();
+      }
+    });
+  }
+
+  hideMomentAfter(moment: number){
+    this.operationsMap.forEach((value) => {
+      if (moment < (value.position.y)) {
+        value.blur();
+      } else {
+        value.show();
+      }
+    });
   }
 
   private createLine() {

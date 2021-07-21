@@ -16,6 +16,7 @@ import {Scene, PerspectiveCamera, WebGLRenderer} from 'three';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import {GridCircuit} from './grid_circuit';
 import {GridCoord} from './components/types';
+import {GUI} from 'dat.gui'
 
 /**
  * Creates a three.js scene object, adds it to the container element
@@ -84,6 +85,21 @@ export function createGridCircuit(
 
   const circuit = new GridCircuit(numMoments, qubits);
   scene.add(circuit);
+
+  const params = {
+    'show_all_moments': () => {},
+    'moment_start': 1,
+    'moment_end': numMoments,
+  }
+  const gui = new GUI();
+  const momentsFolder = gui.addFolder('Moments');
+  momentsFolder.add(params, 'show_all_moments').onChange((value) => {
+    circuit.showAllMoments();
+  })
+  momentsFolder.add(params, 'moment_start', 1, numMoments, 1)
+    .onFinishChange((value) => circuit.hideAllMomentsBefore(value))
+  momentsFolder.add(params, 'moment_end', 1, numMoments, 1)
+    .onFinishChange((value) => circuit.hideAllMomentsAfter(value))
 
   return circuit;
 }

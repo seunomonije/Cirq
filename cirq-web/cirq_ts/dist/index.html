@@ -13,7 +13,17 @@
         {row: 0, col: 1}, 
         {row: 1, col: 0}
       ], 5, 'mycircuitdiv');
-    circuit.displayGatesFromList([{'text': 'H', 'color': 'yellow', 'row': 0, 'col': 0, 'moment': 1, 'type': 'SingleQubitGate'}]);
+    circuit.displayGatesFromList([
+      {'text': 'H', 'color': 'yellow', 'row': 0, 'col': 0, 'moment': 1, 'type': 'SingleQubitGate'},
+      {'text': 'H', 'color': 'yellow', 'row': 0, 'col': 1, 'moment': 2, 'type': 'SingleQubitGate'},
+      {'text': 'Y', 'color': 'red', 'row': 1, 'col': 0, 'moment': 1, 'type': 'SingleQubitGate'},
+      {'text': 'H', 'color': 'yellow', 'row': 0, 'col': 0, 'moment': 2, 'type': 'SingleQubitGate'},
+      {'text': 'I', 'color': 'cyan', 'row': 0, 'col': 1, 'moment': 3, 'type': 'SingleQubitGate'},
+      {'text': 'I', 'color': 'cyan', 'row': 0, 'col': 0, 'moment': 3, 'type': 'SingleQubitGate'},
+      {'text': 'Z', 'color': 'orange', 'row': 0, 'col': 0, 'moment': 4, 'type': 'SingleQubitGate'},
+      {'text': 'Z', 'color': 'orange', 'row': 1, 'col': 0, 'moment': 4, 'type': 'SingleQubitGate'},
+    ]);
+
   </script>
 </body>
 </html>

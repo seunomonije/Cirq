@@ -97,6 +97,24 @@ export class GridCircuit extends Group {
     );
   }
 
+  showAllMoments() {
+    for (const qubit of this.circuit.values()){
+      qubit.showAllMoments();
+    }
+  }
+  
+  hideAllMomentsBefore(moment: number) {
+    for (const qubit of this.circuit.values()){
+      qubit.hideMomentBefore(moment);
+    }
+  }
+
+  hideAllMomentsAfter(moment: number) {
+    for (const qubit of this.circuit.values()){
+      qubit.hideMomentAfter(moment);
+    }
+  }
+
   private addQubit(x: number, y: number) {
     const qubit = new GridQubit(x, y, this.moments);
     const key = [x, y].join(',');

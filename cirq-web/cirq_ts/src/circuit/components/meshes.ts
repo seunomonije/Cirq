@@ -28,15 +28,30 @@ import {
   BoxGeometry,
 } from 'three';
 
-export class ConnectionLine extends Line {
+interface Symbol {
+  blur(): void,
+  show(): void,
+}
+
+export class ConnectionLine extends Line implements Symbol {
   constructor(startCoord: Vector3, endCoord: Vector3) {
-    super();
     const COLOR = 'black';
 
-    const material = new LineBasicMaterial({color: COLOR});
+    const material = new LineBasicMaterial({color: COLOR, transparent: true});
     const points = [startCoord, endCoord];
     const geometry = new BufferGeometry().setFromPoints(points);
-    return new Line(geometry, material);
+    super(geometry, material);
+    return this;
+  }
+
+  blur() {
+    const material = this.material as LineBasicMaterial;
+    material.opacity = 0.05;
+  }
+
+  show() {
+    const material = this.material as LineBasicMaterial;
+    material.opacity = 1;
   }
 }
 
@@ -74,33 +89,40 @@ export class QubitLabel extends Sprite {
 
 export class QubitLine extends Line {
   constructor(startCoord: Vector3, endCoord: Vector3) {
-    super();
+    
     const COLOR = 'gray';
 
     const material = new LineBasicMaterial({color: COLOR});
     const points = [startCoord, endCoord];
     const geometry = new BufferGeometry().setFromPoints(points);
-    return new Line(geometry, material);
+    super(geometry, material);
+    return this;
   }
 }
 
 export class Control3DSymbol extends Mesh {
   constructor() {
-    super();
     const COLOR = 'black';
 
     const material = new MeshBasicMaterial({color: COLOR});
     const geometry = new SphereGeometry(0.1, 32, 32);
-    const sphere = new Mesh(geometry, material);
+    super(geometry, material);
+    return this;
+  }
 
-    return sphere;
+  blur() {
+    const material = this.material as MeshBasicMaterial;
+    material.opacity = 0.05;
+  }
+
+  show() {
+    const material = this.material as MeshBasicMaterial;
+    material.opacity = 1;
   }
 }
 
 export class X3DSymbol extends Mesh {
   constructor(color: string) {
-    super();
-
     const material = new MeshBasicMaterial({color: color, side: DoubleSide});
     const geometry = new CylinderGeometry(
       0.3,
@@ -112,15 +134,23 @@ export class X3DSymbol extends Mesh {
       0,
       2 * Math.PI
     );
-    const cylinder = new Mesh(geometry, material);
-    return cylinder;
+    super(geometry, material);
+    return this;
+  }
+
+  blur() {
+    const material = this.material as MeshBasicMaterial;
+    material.opacity = 0.05;
+  }
+
+  show() {
+    const material = this.material as MeshBasicMaterial;
+    material.opacity = 1;
   }
 }
 
 export class BoxGate3DSymbol extends Mesh {
   constructor(label: string, color: string) {
-    super();
-
     const canvas = document.createElement('canvas')!;
     const context = canvas.getContext('2d')!;
     canvas.width = canvas.height = 128;
@@ -136,8 +166,18 @@ export class BoxGate3DSymbol extends Mesh {
 
     const geometry = new BoxGeometry(0.5, 0.5, 0.5);
     const material = new MeshBasicMaterial({map: map, color: color});
-    const cube = new Mesh(geometry, material);
+    super(geometry, material);
 
-    return cube;
+    return this;
+  }
+
+  blur() {
+    const material = this.material as MeshBasicMaterial;
+    material.opacity = 0.05;
+  }
+
+  show() {
+    const material = this.material as MeshBasicMaterial;
+    material.opacity = 1;
   }
 }
