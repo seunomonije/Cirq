@@ -91,15 +91,28 @@ export function createGridCircuit(
     'moment_start': 1,
     'moment_end': numMoments,
   }
+  
   const gui = new GUI();
   const momentsFolder = gui.addFolder('Moments');
   momentsFolder.add(params, 'show_all_moments').onChange((value) => {
     circuit.showAllMoments();
   })
   momentsFolder.add(params, 'moment_start', 1, numMoments, 1)
-    .onFinishChange((value) => circuit.hideAllMomentsBefore(value))
+    .onFinishChange((value) => {
+      params['moment_start'] = value;
+      console.log(params['moment_start']);
+      circuit.showAllMoments();
+      circuit.hideAllMomentsBefore(params['moment_start']);
+      circuit.hideAllMomentsAfter(params['moment_end']);
+    });
+
   momentsFolder.add(params, 'moment_end', 1, numMoments, 1)
-    .onFinishChange((value) => circuit.hideAllMomentsAfter(value))
+    .onFinishChange((value) => {
+      params['moment_end'] = value;
+      circuit.showAllMoments();
+      circuit.hideAllMomentsBefore(params['moment_start'])
+      circuit.hideAllMomentsAfter(params['moment_end'])
+    });
 
   return circuit;
 }

@@ -105,13 +105,13 @@ export class GridCircuit extends Group {
   
   hideAllMomentsBefore(moment: number) {
     for (const qubit of this.circuit.values()){
-      qubit.hideMomentBefore(moment);
+      qubit.hideMomentsBefore(moment);
     }
   }
 
   hideAllMomentsAfter(moment: number) {
     for (const qubit of this.circuit.values()){
-      qubit.hideMomentAfter(moment);
+      qubit.hideMomentsAfter(moment);
     }
   }
 
