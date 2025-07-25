@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import numpy as np
 import pytest
 
 import cirq
-from cirq.interop.quirk.cells.testing import assert_url_to_circuit_returns
 from cirq import quirk_url_to_circuit
+from cirq.interop.quirk.cells.testing import assert_url_to_circuit_returns
 
 
-def test_input_rotation_cells():
+def test_input_rotation_cells() -> None:
     with pytest.raises(ValueError, match='classical constant'):
         _ = quirk_url_to_circuit(
             'https://algassert.com/quirk#circuit={"cols":[["Z^(A/2^n)",{"id":"setA","arg":3}]]}'
@@ -37,7 +39,7 @@ def test_input_rotation_cells():
       │
 2: ───A1──────────
         """,
-        unitary=np.diag([1, 1, 1, 1, 1j ** 0, 1j ** 0.5, 1j ** 1, 1j ** 1.5]),
+        unitary=np.diag([1, 1, 1, 1, 1j**0, 1j**0.5, 1j**1, 1j**1.5]),
     )
     assert_url_to_circuit_returns(
         '{"cols":[["Z^(-A/2^n)","inputA1"]]}', unitary=np.diag([1, 1, 1, -1j])
@@ -45,34 +47,34 @@ def test_input_rotation_cells():
 
     assert_url_to_circuit_returns(
         '{"cols":[["H"],["X^(A/2^n)","inputA2"],["H"]]}',
-        unitary=np.diag([1, 1, 1, 1, 1j ** 0, 1j ** 0.5, 1j ** 1, 1j ** 1.5]),
+        unitary=np.diag([1, 1, 1, 1, 1j**0, 1j**0.5, 1j**1, 1j**1.5]),
     )
     assert_url_to_circuit_returns(
         '{"cols":[["H"],["X^(-A/2^n)","inputA2"],["H"]]}',
-        unitary=np.diag([1, 1, 1, 1, 1j ** 0, 1j ** -0.5, 1j ** -1, 1j ** -1.5]),
+        unitary=np.diag([1, 1, 1, 1, 1j**0, 1j**-0.5, 1j**-1, 1j**-1.5]),
     )
 
     assert_url_to_circuit_returns(
         '{"cols":[["X^-½"],["Y^(A/2^n)","inputA2"],["X^½"]]}',
-        unitary=np.diag([1, 1, 1, 1, 1j ** 0, 1j ** 0.5, 1j ** 1, 1j ** 1.5]),
+        unitary=np.diag([1, 1, 1, 1, 1j**0, 1j**0.5, 1j**1, 1j**1.5]),
     )
     assert_url_to_circuit_returns(
         '{"cols":[["X^-½"],["Y^(-A/2^n)","inputA2"],["X^½"]]}',
-        unitary=np.diag([1, 1, 1, 1, 1j ** 0, 1j ** -0.5, 1j ** -1, 1j ** -1.5]),
+        unitary=np.diag([1, 1, 1, 1, 1j**0, 1j**-0.5, 1j**-1, 1j**-1.5]),
     )
 
     assert_url_to_circuit_returns(
         '{"cols":[["•","Z^(A/2^n)","inputA2"]]}',
         diagram="""
-0: ───@───────────
+0: ───@^(A/2^2)───
       │
-1: ───Z^(A/2^2)───
+1: ───@───────────
       │
 2: ───A0──────────
       │
 3: ───A1──────────
         """,
-        unitary=np.diag([1 + 0j] * 13 + [1j ** 0.5, 1j, 1j ** 1.5]),
+        unitary=np.diag([1 + 0j] * 13 + [1j**0.5, 1j, 1j**1.5]),
     )
 
     assert_url_to_circuit_returns(
@@ -105,7 +107,7 @@ def test_input_rotation_cells():
     )
 
 
-def test_input_rotation_cells_repr():
+def test_input_rotation_cells_repr() -> None:
     circuit = quirk_url_to_circuit(
         'http://algassert.com/quirk#circuit={"cols":[["•","X^(-A/2^n)","inputA2"]]}'
     )
@@ -113,7 +115,7 @@ def test_input_rotation_cells_repr():
     cirq.testing.assert_equivalent_repr(op)
 
 
-def test_validation():
+def test_validation() -> None:
     with pytest.raises(ValueError, match='sign'):
         _ = cirq.interop.quirk.QuirkInputRotationOperation(
             identifier='xxx',
@@ -123,7 +125,7 @@ def test_validation():
         )
 
 
-def test_input_rotation_with_qubits():
+def test_input_rotation_with_qubits() -> None:
     a, b, c, d, e = cirq.LineQubit.range(5)
     x, y, z, t, w = cirq.LineQubit.range(10, 15)
     op = cirq.interop.quirk.QuirkInputRotationOperation(
@@ -143,7 +145,7 @@ def test_input_rotation_with_qubits():
     )
 
 
-def test_input_rotation_cell_with_qubits():
+def test_input_rotation_cell_with_qubits() -> None:
     a, b, c, d, e = cirq.LineQubit.range(5)
     x, y, z, t, w = cirq.LineQubit.range(10, 15)
     cell = cirq.interop.quirk.cells.input_rotation_cells.InputRotationCell(
@@ -162,7 +164,7 @@ def test_input_rotation_cell_with_qubits():
     )
 
 
-def test_input_rotation_cell_with_qubits_before_register_specified():
+def test_input_rotation_cell_with_qubits_before_register_specified() -> None:
     d, e = cirq.LineQubit.range(3, 5)
     x, y, z, t, w = cirq.LineQubit.range(10, 15)
     cell = cirq.interop.quirk.cells.input_rotation_cells.InputRotationCell(
@@ -181,7 +183,7 @@ def test_input_rotation_cell_with_qubits_before_register_specified():
     )
 
 
-def test_repr():
+def test_repr() -> None:
     a, b, c, d, e = cirq.LineQubit.range(5)
     cirq.testing.assert_equivalent_repr(
         cirq.interop.quirk.cells.input_rotation_cells.InputRotationCell(

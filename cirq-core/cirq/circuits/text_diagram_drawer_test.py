@@ -12,13 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from unittest import mock
+
 import pytest
 
+import cirq.testing as ct
 from cirq.circuits import TextDiagramDrawer
 from cirq.circuits._block_diagram_drawer_test import _assert_same_diagram
-from cirq.circuits.text_diagram_drawer import _HorizontalLine, _VerticalLine, _DiagramText
-import cirq.testing as ct
+from cirq.circuits._box_drawing_character_data import (
+    ASCII_BOX_CHARS,
+    BOLD_BOX_CHARS,
+    DOUBLED_BOX_CHARS,
+    NORMAL_BOX_CHARS,
+)
+from cirq.circuits.text_diagram_drawer import (
+    _DiagramText,
+    _HorizontalLine,
+    _VerticalLine,
+    pick_charset,
+)
 
 
 def assert_has_rendering(actual: TextDiagramDrawer, desired: str, **kwargs) -> None:
@@ -35,21 +49,17 @@ def assert_has_rendering(actual: TextDiagramDrawer, desired: str, **kwargs) -> N
         "Diagram's rendering differs from the desired rendering.\n"
         '\n'
         'Actual rendering:\n'
-        '{}\n'
+        f'{actual_diagram}\n'
         '\n'
         'Desired rendering:\n'
-        '{}\n'
+        f'{desired_diagram}\n'
         '\n'
         'Highlighted differences:\n'
-        '{}\n'.format(
-            actual_diagram,
-            desired_diagram,
-            ct.highlight_text_differences(actual_diagram, desired_diagram),
-        )
+        f'{ct.highlight_text_differences(actual_diagram, desired_diagram)}\n'
     )
 
 
-def test_draw_entries_and_lines_with_options():
+def test_draw_entries_and_lines_with_options() -> None:
     d = TextDiagramDrawer()
     d.write(0, 0, '!')
     d.write(6, 2, 'span')
@@ -122,7 +132,7 @@ def test_draw_entries_and_lines_with_options():
     )
 
 
-def test_draw_entries_and_lines_with_emphasize():
+def test_draw_entries_and_lines_with_emphasize() -> None:
     d = TextDiagramDrawer()
     d.write(0, 0, '!')
     d.write(6, 2, 'span')
@@ -151,27 +161,27 @@ def test_draw_entries_and_lines_with_emphasize():
     )
 
 
-def test_line_detects_horizontal():
+def test_line_detects_horizontal() -> None:
     d = TextDiagramDrawer()
     with mock.patch.object(d, 'vertical_line') as vertical_line:
         d.grid_line(1, 2, 1, 5, True)
-        vertical_line.assert_called_once_with(1, 2, 5, True)
+        vertical_line.assert_called_once_with(1, 2, 5, True, False)
 
 
-def test_line_detects_vertical():
+def test_line_detects_vertical() -> None:
     d = TextDiagramDrawer()
     with mock.patch.object(d, 'horizontal_line') as horizontal_line:
         d.grid_line(2, 1, 5, 1, True)
-        horizontal_line.assert_called_once_with(1, 2, 5, True)
+        horizontal_line.assert_called_once_with(1, 2, 5, True, False)
 
 
-def test_line_fails_when_not_aligned():
+def test_line_fails_when_not_aligned() -> None:
     d = TextDiagramDrawer()
     with pytest.raises(ValueError):
         d.grid_line(1, 2, 3, 4)
 
 
-def test_multiline_entries():
+def test_multiline_entries() -> None:
     d = TextDiagramDrawer()
     d.write(0, 0, 'hello\nthere')
     d.write(0, 1, 'next')
@@ -215,10 +225,10 @@ short     │ │         │
     )
 
 
-def test_drawer_copy():
+def test_drawer_copy() -> None:
     orig_entries = {(0, 0): _DiagramText('entry', '')}
-    orig_vertical_lines = [_VerticalLine(1, 1, 3, True)]
-    orig_horizontal_lines = [_HorizontalLine(0, 0, 3, False)]
+    orig_vertical_lines = [_VerticalLine(1, 1, 3, True, False)]
+    orig_horizontal_lines = [_HorizontalLine(0, 0, 3, False, False)]
     orig_vertical_padding = {0: 2}
     orig_horizontal_padding = {1: 3}
     kwargs = {
@@ -228,9 +238,9 @@ def test_drawer_copy():
         'vertical_padding': orig_vertical_padding,
         'horizontal_padding': orig_horizontal_padding,
     }
-    orig_drawer = TextDiagramDrawer(**kwargs)
+    orig_drawer = TextDiagramDrawer(**kwargs)  # type: ignore[arg-type]
 
-    same_drawer = TextDiagramDrawer(**kwargs)
+    same_drawer = TextDiagramDrawer(**kwargs)  # type: ignore[arg-type]
     assert orig_drawer == same_drawer
 
     copy_drawer = orig_drawer.copy()
@@ -256,7 +266,7 @@ def test_drawer_copy():
     assert copy_drawer != orig_drawer
 
 
-def test_drawer_stack():
+def test_drawer_stack() -> None:
     d = TextDiagramDrawer()
     d.write(0, 0, 'A')
     d.write(1, 0, 'B')
@@ -326,7 +336,7 @@ AB D
     with pytest.raises(ValueError):
         TextDiagramDrawer.vstack((d, dd))
 
-    vstacked = TextDiagramDrawer.vstack((dd, d), padding_resolver=max)
+    vstacked = TextDiagramDrawer.vstack((dd, d), padding_resolver=max)  # type: ignore[arg-type]
     expected = """
 D
 
@@ -340,7 +350,7 @@ A  B
     """.strip()
     assert_has_rendering(vstacked, expected)
 
-    hstacked = TextDiagramDrawer.hstack((d, dd), padding_resolver=max)
+    hstacked = TextDiagramDrawer.hstack((d, dd), padding_resolver=max)  # type: ignore[arg-type]
     expected = """
 AB D
 
@@ -350,7 +360,7 @@ AB D
     """.strip()
     assert_has_rendering(hstacked, expected)
 
-    vstacked_min = TextDiagramDrawer.vstack((dd, d), padding_resolver=min)
+    vstacked_min = TextDiagramDrawer.vstack((dd, d), padding_resolver=min)  # type: ignore[arg-type]
     expected = """
 D
 
@@ -364,7 +374,7 @@ AB
     """.strip()
     assert_has_rendering(vstacked_min, expected)
 
-    hstacked_min = TextDiagramDrawer.hstack((d, dd), padding_resolver=min)
+    hstacked_min = TextDiagramDrawer.hstack((d, dd), padding_resolver=min)  # type: ignore[arg-type]
     expected = """
 AB D
 
@@ -373,7 +383,7 @@ AB D
     assert_has_rendering(hstacked_min, expected)
 
 
-def test_drawer_eq():
+def test_drawer_eq() -> None:
     assert TextDiagramDrawer().__eq__(23) == NotImplemented
 
     eq = ct.EqualsTester()
@@ -397,7 +407,7 @@ def test_drawer_eq():
     eq.add_equality_group(dd)
 
 
-def test_drawer_superimposed():
+def test_drawer_superimposed() -> None:
     empty_drawer = TextDiagramDrawer()
     assert not empty_drawer
     drawer_with_something = TextDiagramDrawer()
@@ -406,3 +416,15 @@ def test_drawer_superimposed():
     superimposed_drawer = empty_drawer.superimposed(drawer_with_something)
     assert superimposed_drawer == drawer_with_something
     assert not empty_drawer
+
+
+def test_pick_charset() -> None:
+    assert pick_charset(use_unicode=False, emphasize=False, doubled=False) == ASCII_BOX_CHARS
+    assert pick_charset(use_unicode=False, emphasize=False, doubled=True) == ASCII_BOX_CHARS
+    assert pick_charset(use_unicode=False, emphasize=True, doubled=False) == ASCII_BOX_CHARS
+    assert pick_charset(use_unicode=False, emphasize=True, doubled=True) == ASCII_BOX_CHARS
+    assert pick_charset(use_unicode=True, emphasize=False, doubled=False) == NORMAL_BOX_CHARS
+    assert pick_charset(use_unicode=True, emphasize=False, doubled=True) == DOUBLED_BOX_CHARS
+    assert pick_charset(use_unicode=True, emphasize=True, doubled=False) == BOLD_BOX_CHARS
+    with pytest.raises(ValueError):
+        pick_charset(use_unicode=True, emphasize=True, doubled=True)

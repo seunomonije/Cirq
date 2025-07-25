@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import pytest
 
 import cirq
@@ -46,7 +48,7 @@ def test_line_placement_str():
     assert (
         str(placement).strip()
         == """
-(0, 0)━━(0, 1)━━(0, 2)
+q(0, 0)━━q(0, 1)━━q(0, 2)
     """.strip()
     )
 
@@ -61,8 +63,8 @@ def test_line_placement_to_str():
     assert (
         str(placement).strip()
         == """
-(0, 0)━━(0, 1)━━(0, 2)
+q(0, 0)━━q(0, 1)━━q(0, 2)
 ┃
-(1, 0)━━(1, 1)
+q(1, 0)━━q(1, 1)
     """.strip()
     )

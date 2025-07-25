@@ -1,3 +1,5 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
+
 """Demonstrates swap networks.
 
 Swap networks are used to get around limited connectivity in a hardware device.
@@ -17,25 +19,25 @@ say that we want to apply a 2-qubit gate to pairs of qubits, even when the
 implied graph is not a subgraph of the hardware adjacency graph.
 """
 
+from __future__ import annotations
+
 import itertools
 import random
-from typing import cast, Dict, List, Sequence, Tuple, TypeVar, Union
+from typing import Sequence, TypeVar
 
 import cirq
 import cirq.contrib.acquaintance as cca
 
 LogicalIndex = TypeVar('LogicalIndex', int, cirq.Qid)
-LogicalIndexSequence = Union[Sequence[int], Sequence[cirq.Qid]]
-LogicalGates = Dict[Tuple[LogicalIndex, ...], cirq.Gate]
+LogicalIndexSequence = Sequence[int] | Sequence[cirq.Qid]
+LogicalGates = dict[tuple[LogicalIndex, ...], cirq.Gate]
 LogicalMappingKey = TypeVar('LogicalMappingKey', bound=cirq.Qid)
-LogicalMapping = Dict[LogicalMappingKey, LogicalIndex]
+LogicalMapping = dict[LogicalMappingKey, LogicalIndex]
 
 
-def get_random_graph(n_vertices: int, edge_prob: float = 0.5) -> List[Tuple[int, int]]:
+def get_random_graph(n_vertices: int, edge_prob: float = 0.5) -> list[tuple[int, int]]:
     return [
-        cast(Tuple[int, int], ij)
-        for ij in itertools.combinations(range(n_vertices), 2)
-        if random.random() <= edge_prob
+        ij for ij in itertools.combinations(range(n_vertices), 2) if random.random() <= edge_prob
     ]
 
 
@@ -90,7 +92,7 @@ def get_phase_sep_circuit(
 
 def get_max_cut_qaoa_circuit(
     vertices: Sequence[int],
-    edges: Sequence[Tuple[int, int]],
+    edges: Sequence[tuple[int, int]],
     beta: float,
     gamma: float,
     use_logical_qubits: bool = False,
@@ -119,13 +121,13 @@ def get_max_cut_qaoa_circuit(
     n_vertices = len(vertices)
 
     # G_{i,j} ∝ exp(i gamma (|01><01| + |10><10|))
-    phase_sep_gates = {edge: cirq.ZZ ** gamma for edge in edges}  # type: LogicalMapping
+    phase_sep_gates: LogicalMapping = {edge: cirq.ZZ**gamma for edge in edges}
 
     # Physical qubits
     qubits = cirq.LineQubit.range(n_vertices)
 
     # Mapping from qubits to vertices.
-    initial_mapping = {q: i for i, q in enumerate(qubits)}  # type: LogicalMapping
+    initial_mapping: LogicalMapping = {q: i for i, q in enumerate(qubits)}
 
     if use_logical_qubits:
         initial_mapping = {q: cirq.LineQubit(i) for q, i in initial_mapping.items()}
@@ -150,9 +152,9 @@ def main():
             vertices, edges, beta, gamma, use_logical_qubits, verbose
         )
         print(
-            '1-round QAOA circuit (using {}s as logical indices):'.format(
-                'qubit' if use_logical_qubits else 'integer'
-            )
+            '1-round QAOA circuit (using '
+            f"{'qubits' if use_logical_qubits else 'integers'} "
+            'as logical indices):'
         )
         print(circuit)
 

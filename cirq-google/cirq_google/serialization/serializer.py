@@ -12,37 +12,46 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import abc
-from typing import Dict, List, Optional
+from __future__ import annotations
 
-import cirq
-from cirq_google.api import v2
+import abc
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import cirq
+    from cirq_google.api import v2
 
 
 class Serializer(metaclass=abc.ABCMeta):
     """Interface for serialization."""
 
+    def __init__(self, gate_set_name: str):
+        self._gate_set_name = gate_set_name
+
+    @property
+    def name(self):
+        """The name of the serializer."""
+        return self._gate_set_name
+
     @abc.abstractmethod
     def serialize(
-        self,
-        program: cirq.Circuit,
-        msg: Optional[v2.program_pb2.Program] = None,
-        *,
-        arg_function_language: Optional[str] = None,
+        self, program: cirq.AbstractCircuit, msg: v2.program_pb2.Program | None = None
     ) -> v2.program_pb2.Program:
-        """Serialize."""
+        """Serialize a Circuit to cirq_google.api.v2.Program proto.
 
-    def deserialize(
-        self, proto: v2.program_pb2.Program, device: Optional[cirq.Device] = None
-    ) -> cirq.Circuit:
+        Args:
+            program: The Circuit to serialize.
+            msg: An optional proto object to populate with the serialization
+                results.
+        """
+
+    @abc.abstractmethod
+    def deserialize(self, proto: v2.program_pb2.Program) -> cirq.Circuit:
         """Deserialize a Circuit from a cirq_google.api.v2.Program.
 
         Args:
             proto: A dictionary representing a cirq_google.api.v2.Program proto.
-            device: If the proto is for a schedule, a device is required
-                Otherwise optional.
 
         Returns:
-            The deserialized Circuit, with a device if device was
-            not None.
+            The deserialized Circuit.
         """

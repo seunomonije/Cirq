@@ -12,26 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Tuple, List, cast, Set, Optional
+from __future__ import annotations
 
 import os.path
 import re
+from typing import cast
 
 from dev_tools import env_tools, shell_tools
 
 IGNORED_FILE_PATTERNS = [
+    r'^(.+/)?conftest\.py$',
     r'^dev_tools/.+',  # Environment-heavy code.
-    r'^rtd_docs/.+',  # Environment-heavy code.
     r'^.+_pb2(_grpc)?\.py$',  # Auto-generated protobuf code.
     r'^(.+/)?setup\.py$',  # Installation code.
     r'^(.+/)?_version\.py$',  # Installation code.
-    r'^cirq-google/cirq_google/engine/client/.+.py$',  # Generated gRPC client code.
-    r'^cirq-google/cirq_google/api/v1/.+.py$',  # deprecated API code
+    r'^cirq-google/cirq_google/cloud/.+\.py$',  # Generated gRPC client code.
+    r'^cirq-google/cirq_google/api/v1/.+\.py$',  # deprecated API code
     r'^benchmarks/',
 ]
-IGNORED_BLOCK_PATTERNS = [
-    r'^\s*if TYPE_CHECKING:$',  # imports needed only while type-checking.
-]
+IGNORED_BLOCK_PATTERNS = [r'^\s*if TYPE_CHECKING:$']  # imports needed only while type-checking.
 IGNORED_LINE_PATTERNS = [
     # Imports often uncovered due to version checks and type checking blocks.
     r'^import .+$',
@@ -56,10 +55,10 @@ IGNORED_LINE_PATTERNS = [
     # Body of mypy Protocol methods.
     r'\.\.\.',
 ]
-EXPLICIT_OPT_OUT_COMMENT = '#coverage:ignore'
+EXPLICIT_OPT_OUT_PATTERN = r'#\s*pragma:\s*no cover\s*$'
 
 
-def diff_to_new_interesting_lines(unified_diff_lines: List[str]) -> Dict[int, str]:
+def diff_to_new_interesting_lines(unified_diff_lines: list[str]) -> dict[int, str]:
     """Extracts a set of 'interesting' lines out of a GNU unified diff format.
 
     Format:
@@ -124,15 +123,13 @@ def fix_line_from_coverage_file(line):
     return line
 
 
-# TODO(#3388) Add summary line to docstring.
-# pylint: disable=docstring-first-line-empty
 def get_incremental_uncovered_lines(
-    abs_path: str, base_commit: str, actual_commit: Optional[str]
-) -> List[Tuple[int, str, str]]:
-    """
-    Uses git diff and the annotation files created by
-    `pytest --cov-report annotate` to find touched but uncovered lines in the
-    given file.
+    abs_path: str, base_commit: str, actual_commit: str | None
+) -> list[tuple[int, str, str]]:
+    """Find touched but uncovered lines in the given file.
+
+    Uses git diff and the annotation files created by `pytest --cov-report annotate` to find
+    these lines in the given file.
 
     Args:
         abs_path: The path of a file to look for uncovered lines in.
@@ -148,20 +145,21 @@ def get_incremental_uncovered_lines(
     if not os.path.isfile(abs_path):
         return []
 
+    optional_actual_commit = [] if actual_commit is None else [actual_commit]
     unified_diff_lines_str = shell_tools.output_of(
-        'git', 'diff', '--unified=0', base_commit, actual_commit, '--', abs_path
+        ['git', 'diff', '--unified=0', base_commit, *optional_actual_commit, '--', abs_path]
     )
     unified_diff_lines = [e for e in unified_diff_lines_str.split('\n') if e.strip()]
 
     touched_lines = diff_to_new_interesting_lines(unified_diff_lines)
 
-    with open(abs_path, 'r') as actual_file:
+    with open(abs_path, 'r', encoding="utf8") as actual_file:
         ignored_lines = determine_ignored_lines(actual_file.read())
 
     cover_path = abs_path + ',cover'
     has_cover_file = os.path.isfile(cover_path)
     content_file = cover_path if has_cover_file else abs_path
-    with open(content_file, 'r') as annotated_coverage_file:
+    with open(content_file, 'r', encoding="utf8") as annotated_coverage_file:
         return [
             (i, fix_line_from_coverage_file(line), touched_lines[i])
             for i, line in enumerate(annotated_coverage_file, start=1)
@@ -170,9 +168,9 @@ def get_incremental_uncovered_lines(
         ]
 
 
-# TODO(#3388) Add summary line to docstring.
 def line_content_counts_as_uncovered_manual(content: str) -> bool:
-    """
+    """Whether the given content counts as uncovered.
+
     Args:
         content: A line with indentation and tail comments/space removed.
 
@@ -193,28 +191,25 @@ def line_content_counts_as_uncovered_manual(content: str) -> bool:
     return True
 
 
-# pylint: enable=docstring-first-line-empty
-def determine_ignored_lines(content: str) -> Set[int]:
+def determine_ignored_lines(content: str) -> set[int]:
     lines = content.split('\n')
-    result = []  # type: List[int]
+    result: list[int] = []
 
+    explicit_opt_out_regexp = re.compile(EXPLICIT_OPT_OUT_PATTERN)
     i = 0
     while i < len(lines):
         line = lines[i]
-
-        # Drop spacing, including internal spacing within the comment.
-        joined_line = re.sub(r'\s+', '', line)
 
         if any(re.match(pat, line) for pat in IGNORED_BLOCK_PATTERNS):
             end = naive_find_end_of_scope(lines, i + 1)
             result.extend(range(i, end))
             i = end
-        elif joined_line == EXPLICIT_OPT_OUT_COMMENT:
+        elif explicit_opt_out_regexp.match(line.strip()):
             # Ignore the rest of a block.
             end = naive_find_end_of_scope(lines, i)
             result.extend(range(i, end))
             i = end
-        elif joined_line.endswith(EXPLICIT_OPT_OUT_COMMENT):
+        elif explicit_opt_out_regexp.search(line):
             # Ignore a single line.
             result.append(i)
             i += 1
@@ -226,7 +221,7 @@ def determine_ignored_lines(content: str) -> Set[int]:
     return {e + 1 for e in result}
 
 
-def naive_find_end_of_scope(lines: List[str], i: int) -> int:
+def naive_find_end_of_scope(lines: list[str], i: int) -> int:
     # TODO: deal with line continuations, which may be less indented.
     # Github issue: https://github.com/quantumlib/Cirq/issues/2968
     line = lines[i]
@@ -236,16 +231,15 @@ def naive_find_end_of_scope(lines: List[str], i: int) -> int:
     return i
 
 
-# TODO(#3388) Add summary line to docstring.
-# pylint: disable=docstring-first-line-empty
 def line_counts_as_uncovered(line: str, is_from_cover_annotation_file: bool) -> bool:
-    """
+    """Whether the line should count as covered or not.
+
     Args:
         line: The line of code (including coverage annotation).
         is_from_cover_annotation_file: Whether this line has been annotated.
 
     Returns:
-        Does the line count as uncovered?
+        True if the line is counted as uncovered.
     """
 
     # Ignore this line?
@@ -274,7 +268,6 @@ def line_counts_as_uncovered(line: str, is_from_cover_annotation_file: bool) -> 
     return is_from_cover_annotation_file or line_content_counts_as_uncovered_manual(content)
 
 
-# pylint: enable=docstring-first-line-empty
 def is_applicable_python_file(rel_path: str) -> bool:
     """Determines if a file should be included in incremental coverage analysis.
 
@@ -313,6 +306,7 @@ def check_for_uncovered_lines(env: env_tools.PreparedEnv) -> int:
                 )
             )
         for index, line, reason in uncovered_lines:
+            # pylint: disable=consider-using-f-string
             print(
                 'Line {} {} but not covered: {}'.format(
                     shell_tools.highlight(str(index).rjust(4), color_code=shell_tools.BOLD),
@@ -326,8 +320,7 @@ def check_for_uncovered_lines(env: env_tools.PreparedEnv) -> int:
     if uncovered_count:
         print(
             shell_tools.highlight(
-                f'Found {uncovered_count} uncovered touched lines.',
-                color_code=shell_tools.RED,
+                f'Found {uncovered_count} uncovered touched lines.', color_code=shell_tools.RED
             )
         )
     else:

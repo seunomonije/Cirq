@@ -11,9 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import pytest
+
+from __future__ import annotations
 
 import networkx as nx
+import pytest
 
 import cirq
 import cirq.contrib.routing as ccr
@@ -31,12 +33,7 @@ def test_ops_are_consistent_with_device_graph():
 
 def test_get_circuit_connectivity():
     a, b, c, d = cirq.LineQubit.range(4)
-    circuit = cirq.Circuit(
-        cirq.CZ(a, b),
-        cirq.CZ(b, c),
-        cirq.CZ(c, d),
-        cirq.CZ(d, a),
-    )
+    circuit = cirq.Circuit(cirq.CZ(a, b), cirq.CZ(b, c), cirq.CZ(c, d), cirq.CZ(d, a))
     graph = ccr.get_circuit_connectivity(circuit)
     assert graph.number_of_nodes() == 4
     assert graph.number_of_edges() == 4

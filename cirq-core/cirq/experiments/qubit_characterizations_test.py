@@ -12,36 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import os
+from unittest import mock
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-import matplotlib.pyplot as plt
-
 import cirq
 import cirq.experiments.qubit_characterizations as ceqc
-from cirq import GridQubit
-from cirq import circuits, ops, sim
+from cirq import circuits, GridQubit, ops, sim
 from cirq.experiments import (
-    rabi_oscillations,
+    parallel_single_qubit_randomized_benchmarking,
     single_qubit_randomized_benchmarking,
-    two_qubit_randomized_benchmarking,
     single_qubit_state_tomography,
+    two_qubit_randomized_benchmarking,
     two_qubit_state_tomography,
 )
-
-
-def test_rabi_oscillations():
-    # Check that the excited state population matches the ideal case within a
-    # small statistical error.
-    simulator = sim.Simulator()
-    qubit = GridQubit(0, 0)
-    results = rabi_oscillations(simulator, qubit, np.pi, repetitions=1000)
-    data = np.asarray(results.data)
-    angles = data[:, 0]
-    actual_pops = data[:, 1]
-    target_pops = 0.5 - 0.5 * np.cos(angles)
-    rms_err = np.sqrt(np.mean((target_pops - actual_pops) ** 2))
-    assert rms_err < 0.1
 
 
 def test_single_qubit_cliffords():
@@ -89,23 +78,66 @@ def test_single_qubit_cliffords():
 
     # Check that XZ decomposition has at most one X gate per clifford.
     for gates in cliffords.c1_in_xz:
-        num_x = len([gate for gate in gates if isinstance(gate, cirq.XPowGate)])
-        num_z = len([gate for gate in gates if isinstance(gate, cirq.ZPowGate)])
-        assert num_x + num_z == len(gates)
+        num_i = len([gate for gate in gates if gate == cirq.ops.SingleQubitCliffordGate.I])
+        num_x = len(
+            [
+                gate
+                for gate in gates
+                if gate
+                in (
+                    cirq.ops.SingleQubitCliffordGate.X,
+                    cirq.ops.SingleQubitCliffordGate.X_sqrt,
+                    cirq.ops.SingleQubitCliffordGate.X_nsqrt,
+                )
+            ]
+        )
+        num_z = len(
+            [
+                gate
+                for gate in gates
+                if gate
+                in (
+                    cirq.ops.SingleQubitCliffordGate.Z,
+                    cirq.ops.SingleQubitCliffordGate.Z_sqrt,
+                    cirq.ops.SingleQubitCliffordGate.Z_nsqrt,
+                )
+            ]
+        )
+        assert num_x + num_z + num_i == len(gates)
         assert num_x <= 1
 
 
+@mock.patch.dict(os.environ, clear='CIRQ_TESTING')
 def test_single_qubit_randomized_benchmarking():
     # Check that the ground state population at the end of the Clifford
     # sequences is always unity.
     simulator = sim.Simulator()
     qubit = GridQubit(0, 0)
-    num_cfds = range(5, 20, 5)
-    results = single_qubit_randomized_benchmarking(
-        simulator, qubit, num_clifford_range=num_cfds, repetitions=100
-    )
+    num_cfds = tuple(np.logspace(np.log10(5), 3, 5, dtype=int))
+    results = single_qubit_randomized_benchmarking(simulator, qubit, num_clifford_range=num_cfds)
     g_pops = np.asarray(results.data)[:, 1]
     assert np.isclose(np.mean(g_pops), 1.0)
+    assert np.isclose(results.pauli_error(), 0.0, atol=1e-7)  # warning is expected
+
+
+@mock.patch.dict(os.environ, clear='CIRQ_TESTING')
+def test_parallel_single_qubit_parallel_single_qubit_randomized_benchmarking():
+    # Check that the ground state population at the end of the Clifford
+    # sequences is always unity.
+    simulator = sim.Simulator()
+    qubits = (GridQubit(0, 0), GridQubit(0, 1))
+    num_cfds = range(5, 20, 5)
+    results = parallel_single_qubit_randomized_benchmarking(
+        simulator, num_clifford_range=num_cfds, repetitions=100, qubits=qubits
+    )
+    for qubit in qubits:
+        g_pops = np.asarray(results.results_dictionary[qubit].data)[:, 1]
+        assert np.isclose(np.mean(g_pops), 1.0)
+        _ = results.plot_single_qubit(qubit)
+    pauli_errors = results.pauli_error()
+    assert len(pauli_errors) == len(qubits)
+    _ = results.plot_heatmap()
+    _ = results.plot_integrated_histogram()
 
 
 def test_two_qubit_randomized_benchmarking():
@@ -125,24 +157,34 @@ def test_two_qubit_randomized_benchmarking():
 def test_single_qubit_state_tomography():
     # Check that the density matrices of the output states of X/2, Y/2 and
     # H + Y gates closely match the ideal cases.
+    # Checks that unique tomography keys are generated
     simulator = sim.Simulator()
-    qubit = GridQubit(0, 0)
+    q_0 = GridQubit(0, 0)
+    q_1 = GridQubit(0, 1)
 
-    circuit_1 = circuits.Circuit(ops.X(qubit) ** 0.5)
-    circuit_2 = circuits.Circuit(ops.Y(qubit) ** 0.5)
-    circuit_3 = circuits.Circuit(ops.H(qubit), ops.Y(qubit))
+    circuit_1 = circuits.Circuit(ops.X(q_0) ** 0.5)
+    circuit_2 = circuits.Circuit(ops.Y(q_0) ** 0.5)
+    circuit_3 = circuits.Circuit(ops.H(q_0), ops.Y(q_0))
+    circuit_4 = circuits.Circuit(ops.H(q_0), ops.Y(q_0), cirq.measure(q_1, key='z'))
+    circuit_5 = circuits.Circuit(ops.H(q_0), ops.Y(q_0), cirq.measure(q_1, key='tomo_key'))
 
-    act_rho_1 = single_qubit_state_tomography(simulator, qubit, circuit_1, 1000).data
-    act_rho_2 = single_qubit_state_tomography(simulator, qubit, circuit_2, 1000).data
-    act_rho_3 = single_qubit_state_tomography(simulator, qubit, circuit_3, 1000).data
+    act_rho_1 = single_qubit_state_tomography(simulator, q_0, circuit_1, 1000).data
+    act_rho_2 = single_qubit_state_tomography(simulator, q_0, circuit_2, 1000).data
+    act_rho_3 = single_qubit_state_tomography(simulator, q_0, circuit_3, 1000).data
+    act_rho_4 = single_qubit_state_tomography(simulator, q_0, circuit_4, 1000).data
+    act_rho_5 = single_qubit_state_tomography(simulator, q_0, circuit_5, 1000).data
 
     tar_rho_1 = np.array([[0.5, 0.5j], [-0.5j, 0.5]])
     tar_rho_2 = np.array([[0.5, 0.5], [0.5, 0.5]])
     tar_rho_3 = np.array([[0.5, -0.5], [-0.5, 0.5]])
+    tar_rho_4 = np.array([[0.5, -0.5], [-0.5, 0.5]])
+    tar_rho_5 = np.array([[0.5, -0.5], [-0.5, 0.5]])
 
     np.testing.assert_almost_equal(act_rho_1, tar_rho_1, decimal=1)
     np.testing.assert_almost_equal(act_rho_2, tar_rho_2, decimal=1)
     np.testing.assert_almost_equal(act_rho_3, tar_rho_3, decimal=1)
+    np.testing.assert_almost_equal(act_rho_4, tar_rho_4, decimal=1)
+    np.testing.assert_almost_equal(act_rho_5, tar_rho_5, decimal=1)
 
 
 def test_two_qubit_state_tomography():
@@ -188,14 +230,38 @@ def test_two_qubit_state_tomography():
     np.testing.assert_almost_equal(act_rho_yx, tar_rho_yx, decimal=1)
 
 
+@pytest.mark.usefixtures('closefigures')
 def test_tomography_plot_raises_for_incorrect_number_of_axes():
     simulator = sim.Simulator()
     qubit = GridQubit(0, 0)
     circuit = circuits.Circuit(ops.X(qubit) ** 0.5)
     result = single_qubit_state_tomography(simulator, qubit, circuit, 1000)
-    with pytest.raises(TypeError):  # ax is not a List[plt.Axes]
+    with pytest.raises(TypeError):  # ax is not a list[plt.Axes]
         ax = plt.subplot()
         result.plot(ax)
     with pytest.raises(ValueError):
         _, axes = plt.subplots(1, 3)
         result.plot(axes)
+
+
+@pytest.mark.parametrize('num_cliffords', range(5, 10))
+@pytest.mark.parametrize('use_xy_basis', [False, True])
+@pytest.mark.parametrize('strict_basis', [False, True])
+def test_single_qubit_cliffords_gateset(num_cliffords, use_xy_basis, strict_basis):
+    qubits = [GridQubit(0, i) for i in range(4)]
+    c1_in_xy = cirq.experiments.qubit_characterizations.RBParameters(
+        use_xy_basis=use_xy_basis, strict_basis=strict_basis
+    ).gateset()
+    if strict_basis:
+        assert len(c1_in_xy) == 20
+    else:
+        assert len(c1_in_xy) == 24
+    c = cirq.experiments.qubit_characterizations._create_parallel_rb_circuit(
+        qubits, num_cliffords, c1_in_xy
+    )
+    device = cirq.testing.ValidatingTestDevice(
+        qubits=qubits, allowed_gates=(cirq.ops.PhasedXZGate, cirq.MeasurementGate)
+    )
+    device.validate_circuit(c)
+
+    assert len(c) == num_cliffords + 2

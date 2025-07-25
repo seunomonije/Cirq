@@ -12,12 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import functools
-from typing import Dict
+from typing import TYPE_CHECKING
 
-from cirq.protocols.json_serialization import ObjectFactory
+import cirq_ionq
+
+if TYPE_CHECKING:
+    from cirq.protocols.json_serialization import ObjectFactory
 
 
-@functools.lru_cache()
-def _class_resolver_dictionary() -> Dict[str, ObjectFactory]:
-    return {}
+@functools.lru_cache()  # pragma: no cover
+def _class_resolver_dictionary() -> dict[str, ObjectFactory]:  # pragma: no cover
+    return {
+        "GPIGate": cirq_ionq.GPIGate,
+        "GPI2Gate": cirq_ionq.GPI2Gate,
+        "MSGate": cirq_ionq.MSGate,
+        "ZZGate": cirq_ionq.ZZGate,
+        "IonQTargetGateset": cirq_ionq.IonQTargetGateset,
+        "AriaNativeGateset": cirq_ionq.AriaNativeGateset,
+        "ForteNativeGateset": cirq_ionq.ForteNativeGateset,
+    }

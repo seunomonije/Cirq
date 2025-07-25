@@ -11,31 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Helper for testing python logging statements."""
 
+from __future__ import annotations
+
+import contextlib
 import logging
-from typing import ContextManager, List, Optional
-
-from cirq._compat import deprecated_parameter
+from typing import Iterator
 
 
-@deprecated_parameter(
-    deadline="v0.12",
-    fix="use min_level instead",
-    parameter_desc="level",
-    match=lambda args, kwargs: 'level' in kwargs,
-    rewrite=lambda args, kwargs: (
-        args,
-        {('min_level' if k == 'level' else k): v for k, v in kwargs.items()},
-    ),
-)
+@contextlib.contextmanager
 def assert_logs(
     *matches: str,
-    count: Optional[int] = 1,
+    count: int | None = 1,
     min_level: int = logging.WARNING,
     max_level: int = logging.CRITICAL,
     capture_warnings: bool = True,
-) -> ContextManager[List[logging.LogRecord]]:
+) -> Iterator[list[logging.LogRecord]]:
     """A context manager for testing logging and warning events.
 
     To use this one wraps the code that is to be tested for log events within
@@ -51,7 +44,7 @@ def assert_logs(
     can be done beyond these simple asserts.
 
     Args:
-        matches: Each of these is checked to see if they match, as a substring,
+        *matches: Each of these is checked to see if they match, as a substring,
             any of the captures log messages.
         count: The expected number of messages in logs. Defaults to 1. If None is passed in counts
             are not checked.
@@ -59,7 +52,7 @@ def assert_logs(
             module for valid levels. By default this captures at the
             `logging.WARNING` level and above, so this does not capture `logging.INFO`
             or `logging.DEBUG` logs by default.
-        max_level: The maxium level at which to capture the logs. See the python logging
+        max_level: The maximum level at which to capture the logs. See the python logging
             module for valid levels. By default this captures to the `logging.CRITICAL` level
             thus, all the errors and critical messages will be captured as well.
         capture_warnings: Whether warnings from the python's `warnings` module
@@ -69,6 +62,9 @@ def assert_logs(
         A ContextManager that can be entered into which captures the logs
         for code executed within the entered context. This ContextManager
         checks that the asserts for the logs are true on exit.
+
+    Raises:
+        ValueError: If `min_level` is greater than `max_level`.
     """
     if min_level > max_level:
         raise ValueError("min_level should be less than or equal to max_level")
@@ -80,27 +76,23 @@ def assert_logs(
             if max_level >= record.levelno >= min_level:
                 records.append(record)
 
-        def __enter__(self):
-            logging.captureWarnings(capture_warnings)
-            logger = logging.getLogger()
-            # we capture all the logs
-            logger.setLevel(logging.DEBUG)
-            logger.addHandler(self)
-            return records
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            logging.getLogger().removeHandler(self)
-            if capture_warnings:
-                logging.captureWarnings(False)
-            msgs = [record.getMessage() for record in records]
-
-            assert count is None or len(records) == count, (
-                f'Expected {count} log message but ' f'got {len(records)}. Log messages: ' f'{msgs}'
+    handler = Handler()
+    logging.captureWarnings(capture_warnings)
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)  # Capture all logs.
+    logger.addHandler(handler)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+        if capture_warnings:
+            logging.captureWarnings(False)
+        msgs = [record.getMessage() for record in records]
+        assert (
+            count is None or len(records) == count
+        ), f'Expected {count} log message but got {len(records)}. Log messages: {msgs}'
+        for match in matches:
+            assert match in ''.join(msgs), (
+                f'{match} expected to appear in log messages but it was '
+                f'not found. Log messages: {msgs}.'
             )
-            for match in matches:
-                assert match in ''.join(msgs), (
-                    f'{match} expected to appear in log messages but it was '
-                    f'not found. Log messages: {msgs}.'
-                )
-
-    return Handler()

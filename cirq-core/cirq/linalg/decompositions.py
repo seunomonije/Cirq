@@ -12,35 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 """Utility methods for breaking matrices into useful pieces."""
+
+from __future__ import annotations
 
 import cmath
 import math
-from typing import (
-    Any,
-    Callable,
-    Iterable,
-    List,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    TYPE_CHECKING,
-    TypeVar,
-    Union,
-)
+from typing import Any, Callable, cast, Iterable, TYPE_CHECKING, TypeVar
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 # this is for older systems with matplotlib <3.2 otherwise 3d projections fail
-from mpl_toolkits import mplot3d  # pylint: disable=unused-import
-import numpy as np
-import scipy
+from mpl_toolkits import mplot3d
 
-from cirq import value, protocols
+from cirq import protocols, value
 from cirq._compat import proper_repr
+from cirq._import import LazyLoader
 from cirq.linalg import combinators, diagonalize, predicates, transformations
+
+linalg = LazyLoader("linalg", globals(), "scipy.linalg")
+
 
 if TYPE_CHECKING:
     import cirq
@@ -67,8 +59,15 @@ def _rotation_matrix(angle: float) -> np.ndarray:
     return np.array([[c, -s], [s, c]])
 
 
-def deconstruct_single_qubit_matrix_into_angles(mat: np.ndarray) -> Tuple[float, float, float]:
-    """Breaks down a 2x2 unitary into more useful ZYZ angle parameters.
+def deconstruct_single_qubit_matrix_into_angles(mat: np.ndarray) -> tuple[float, float, float]:
+    r"""Breaks down a 2x2 unitary into ZYZ angle parameters.
+
+    Given a unitary U, this function returns three angles: $\phi_0, \phi_1, \phi_2$,
+    such that:  $U = Z^{\phi_2 / \pi} Y^{\phi_1 / \pi} Z^{\phi_0/ \pi}$
+    for the Pauli matrices Y and Z.  That is, phasing around Z by $\phi_0$ radians,
+    then rotating around Y by $\phi_1$ radians, and then phasing again by
+    $\phi_2$ radians will produce the same effect as the original unitary.
+    (Note that the matrices are applied right to left.)
 
     Args:
         mat: The 2x2 unitary matrix to break down.
@@ -96,33 +95,10 @@ def deconstruct_single_qubit_matrix_into_angles(mat: np.ndarray) -> Tuple[float,
     return right_phase + diagonal_phase, rotation * 2, bottom_phase
 
 
-def _group_similar(items: List[T], comparer: Callable[[T, T], bool]) -> List[List[T]]:
-    """Combines similar items into groups.
-
-    Args:
-      items: The list of items to group.
-      comparer: Determines if two items are similar.
-
-    Returns:
-      A list of groups of items.
-    """
-    groups: List[List[T]] = []
-    used: Set[int] = set()
-    for i in range(len(items)):
-        if i not in used:
-            group = [items[i]]
-            for j in range(i + 1, len(items)):
-                if j not in used and comparer(items[i], items[j]):
-                    used.add(j)
-                    group.append(items[j])
-            groups.append(group)
-    return groups
-
-
 def unitary_eig(
     matrix: np.ndarray, check_preconditions: bool = True, atol: float = 1e-8
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Gives the guaranteed unitary eigendecomposition of a normal matrix.
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Gives the guaranteed unitary eigendecomposition of a normal matrix.
 
     All hermitian and unitary matrices are normal matrices. This method was
     introduced as for certain classes of unitary matrices (where the eigenvalues
@@ -131,20 +107,26 @@ def unitary_eig(
     For more information, see https://github.com/numpy/numpy/issues/15461.
 
     Args:
-        matrix: a normal matrix. If not normal, this method is not
-            guaranteed to return correct eigenvalues.
-        check_preconditions: when true and matrix is not unitary,
-            a `ValueError` is raised
-        atol: the absolute tolerance when checking whether the original matrix
-            was unitary
+        matrix: A normal matrix. If not normal, this method is not
+            guaranteed to return correct eigenvalues.  A normal matrix
+            is one where $A A^\dagger = A^\dagger A$.
+        check_preconditions: When true and matrix is not unitary,
+            a `ValueError` is raised when the matrix is not normal.
+        atol: The absolute tolerance when checking whether the original matrix
+            was unitary.
 
     Returns:
-         eigvals: the eigenvalues of `matrix`
-         V: the unitary matrix with the eigenvectors as columns
+        A tuple of
+            eigvals: The eigenvalues of `matrix`.
+            V: The unitary matrix with the eigenvectors as columns.
+
+    Raises:
+        ValueError: if the input matrix is not normal.
     """
     if check_preconditions and not predicates.is_normal(matrix, atol=atol):
         raise ValueError(f'Input must correspond to a normal matrix .Received input:\n{matrix}')
-    R, V = scipy.linalg.schur(matrix, output="complex")
+
+    R, V = linalg.schur(matrix, output="complex")
     return R.diagonal(), V
 
 
@@ -158,7 +140,6 @@ def map_eigenvalues(
     Args:
         matrix: The matrix to modify with the function.
         func: The function to apply to the eigenvalues of the matrix.
-        rtol: Relative threshold used when separating eigenspaces.
         atol: Absolute threshold used when separating eigenspaces.
 
     Returns:
@@ -175,16 +156,17 @@ def map_eigenvalues(
 
 
 def kron_factor_4x4_to_2x2s(
-    matrix: np.ndarray,
-) -> Tuple[complex, np.ndarray, np.ndarray]:
+    matrix: np.ndarray, rtol=1e-5, atol=1e-8
+) -> tuple[complex, np.ndarray, np.ndarray]:
     """Splits a 4x4 matrix U = kron(A, B) into A, B, and a global factor.
 
     Requires the matrix to be the kronecker product of two 2x2 unitaries.
     Requires the matrix to have a non-zero determinant.
-    Giving an incorrect matrix will cause garbage output.
 
     Args:
         matrix: The 4x4 unitary matrix to factor.
+        rtol: Per-matrix-entry relative tolerance on equality.
+        atol: Per-matrix-entry absolute tolerance on equality.
 
     Returns:
         A scalar factor and a pair of 2x2 unit-determinant matrices. The
@@ -207,8 +189,9 @@ def kron_factor_4x4_to_2x2s(
             f2[(a & 1) ^ i, (b & 1) ^ j] = matrix[a ^ i, b ^ j]
 
     # Rescale factors to have unit determinants.
-    f1 /= np.sqrt(np.linalg.det(f1)) or 1
-    f2 /= np.sqrt(np.linalg.det(f2)) or 1
+    with np.errstate(divide="ignore", invalid="ignore"):
+        f1 /= np.sqrt(np.linalg.det(f1)) or 1
+        f2 /= np.sqrt(np.linalg.det(f2)) or 1
 
     # Determine global phase.
     g = matrix[a, b] / (f1[a >> 1, b >> 1] * f2[a & 1, b & 1])
@@ -216,12 +199,15 @@ def kron_factor_4x4_to_2x2s(
         f1 *= -1
         g = -g
 
+    if not np.allclose(matrix, g * np.kron(f1, f2), rtol=rtol, atol=atol):
+        raise ValueError("Invalid 4x4 kronecker product.")
+
     return g, f1, f2
 
 
 def so4_to_magic_su2s(
     mat: np.ndarray, *, rtol: float = 1e-5, atol: float = 1e-8, check_preconditions: bool = True
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Finds 2x2 special-unitaries A, B where mat = Mag.H @ kron(A, B) @ Mag.
 
     Mag is the magic basis matrix:
@@ -250,7 +236,7 @@ def so4_to_magic_su2s(
             raise ValueError('mat must be 4x4 special orthogonal.')
 
     ab = combinators.dot(MAGIC, mat, MAGIC_CONJ_T)
-    _, a, b = kron_factor_4x4_to_2x2s(ab)
+    _, a, b = kron_factor_4x4_to_2x2s(ab, rtol, atol)
 
     return a, b
 
@@ -267,20 +253,14 @@ class AxisAngleDecomposition:
     rotation axis, and g is the global phase.
     """
 
-    def __init__(
-        self,
-        *,
-        angle: float,
-        axis: Tuple[float, float, float],
-        global_phase: Union[int, float, complex],
-    ):
+    def __init__(self, *, angle: float, axis: tuple[float, float, float], global_phase: complex):
         if not np.isclose(np.linalg.norm(axis, 2), 1, atol=1e-8):
             raise ValueError('Axis vector must be normalized.')
         self.global_phase = complex(global_phase)
         self.axis = tuple(axis)
         self.angle = float(angle)
 
-    def canonicalize(self, atol: float = 1e-8) -> 'AxisAngleDecomposition':
+    def canonicalize(self, atol: float = 1e-8) -> AxisAngleDecomposition:
         """Returns a standardized AxisAngleDecomposition with the same unitary.
 
         Ensures the axis (x, y, z) satisfies x+y+z >= 0.
@@ -421,9 +401,9 @@ class KakDecomposition:
         self,
         *,
         global_phase: complex = complex(1),
-        single_qubit_operations_before: Optional[Tuple[np.ndarray, np.ndarray]] = None,
-        interaction_coefficients: Tuple[float, float, float],
-        single_qubit_operations_after: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+        single_qubit_operations_before: tuple[np.ndarray, np.ndarray] | None = None,
+        interaction_coefficients: tuple[float, float, float],
+        single_qubit_operations_after: tuple[np.ndarray, np.ndarray] | None = None,
     ):
         """Initializes a decomposition for a two-qubit operation U.
 
@@ -436,18 +416,14 @@ class KakDecomposition:
             single_qubit_operations_after: a0, a1 from the above equation.
         """
         self.global_phase: complex = global_phase
-        self.single_qubit_operations_before: Tuple[
-            np.ndarray, np.ndarray
-        ] = single_qubit_operations_before or (
-            np.eye(2, dtype=np.complex64),
-            np.eye(2, dtype=np.complex64),
+        self.single_qubit_operations_before: tuple[np.ndarray, np.ndarray] = (
+            single_qubit_operations_before
+            or (np.eye(2, dtype=np.complex64), np.eye(2, dtype=np.complex64))
         )
         self.interaction_coefficients = interaction_coefficients
-        self.single_qubit_operations_after: Tuple[
-            np.ndarray, np.ndarray
-        ] = single_qubit_operations_after or (
-            np.eye(2, dtype=np.complex64),
-            np.eye(2, dtype=np.complex64),
+        self.single_qubit_operations_after: tuple[np.ndarray, np.ndarray] = (
+            single_qubit_operations_after
+            or (np.eye(2, dtype=np.complex64), np.eye(2, dtype=np.complex64))
         )
 
     def _value_equality_values_(self) -> Any:
@@ -525,7 +501,7 @@ class KakDecomposition:
 
         a, b = qubits
         return [
-            ops.GlobalPhaseOperation(self.global_phase),
+            ops.global_phase_operation(self.global_phase),
             ops.MatrixGate(self.single_qubit_operations_before[0]).on(a),
             ops.MatrixGate(self.single_qubit_operations_before[1]).on(b),
             np.exp(1j * ops.X(a) * ops.X(b) * self.interaction_coefficients[0]),
@@ -537,10 +513,10 @@ class KakDecomposition:
 
 
 def scatter_plot_normalized_kak_interaction_coefficients(
-    interactions: Iterable[Union[np.ndarray, 'cirq.SupportsUnitary', 'KakDecomposition']],
+    interactions: Iterable[np.ndarray | cirq.SupportsUnitary | KakDecomposition],
     *,
     include_frame: bool = True,
-    ax: Optional[plt.Axes] = None,
+    ax: mplot3d.axes3d.Axes3D | None = None,
     **kwargs,
 ):
     r"""Plots the interaction coefficients of many two-qubit operations.
@@ -582,7 +558,8 @@ def scatter_plot_normalized_kak_interaction_coefficients(
             wireframe. Defaults to `True`.
         ax: A matplotlib 3d axes object to plot into. If not specified, a new
             figure is created, plotted, and shown.
-        kwargs: Arguments forwarded into the call to `scatter` that plots the
+
+        **kwargs: Arguments forwarded into the call to `scatter` that plots the
             points. Working arguments include color `c='blue'`, scale `s=2`,
             labelling `label="theta=pi/4"`, etc. For reference see the
             `matplotlib.pyplot.scatter` documentation:
@@ -616,16 +593,16 @@ def scatter_plot_normalized_kak_interaction_coefficients(
         >>> plt.show()
     """
     show_plot = not ax
-    if not ax:
+    if ax is None:
         fig = plt.figure()
-        ax = fig.add_subplot(1, 1, 1, projection='3d')
+        ax = cast(mplot3d.axes3d.Axes3D, fig.add_subplot(1, 1, 1, projection='3d'))
 
     def coord_transform(
-        pts: Sequence[Tuple[float, float, float]]
-    ) -> Tuple[Iterable[float], Iterable[float], Iterable[float]]:
+        pts: list[tuple[int, int, int]] | np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if len(pts) == 0:
-            return [], [], []
-        xs, ys, zs = zip(*pts)
+            return np.array([]), np.array([]), np.array([])
+        xs, ys, zs = np.transpose(pts)
         return xs, zs, ys
 
     if include_frame:
@@ -648,7 +625,7 @@ def scatter_plot_normalized_kak_interaction_coefficients(
 
     # parse input and extract KAK vector
     if not isinstance(interactions, np.ndarray):
-        interactions_extracted: List[np.ndarray] = [
+        interactions_extracted: list[np.ndarray] = [
             a if isinstance(a, np.ndarray) else protocols.unitary(a) for a in interactions
         ]
     else:
@@ -716,7 +693,7 @@ def kak_canonicalize_vector(x: float, y: float, z: float, atol: float = 1e-9) ->
     # Shifting strength by ½π is equivalent to local ops (e.g. exp(i½π XX)∝XX).
     def shift(k, step):
         v[k] += step * np.pi / 2
-        phase[0] *= 1j ** step
+        phase[0] *= 1j**step
         right[0] = combinators.dot(flippers[k] ** (step % 4), right[0])
         right[1] = combinators.dot(flippers[k] ** (step % 4), right[1])
 
@@ -797,7 +774,9 @@ KAK_GAMMA = np.array([[1, 1, 1, 1],
 
 
 def kak_decomposition(
-    unitary_object: Union[np.ndarray, 'cirq.SupportsUnitary'],
+    unitary_object: (
+        np.ndarray | cirq.SupportsUnitary | cirq.Gate | cirq.Operation | KakDecomposition
+    ),
     *,
     rtol: float = 1e-5,
     atol: float = 1e-8,
@@ -838,9 +817,7 @@ def kak_decomposition(
     if check_preconditions and (
         mat.shape != (4, 4) or not predicates.is_unitary(mat, rtol=rtol, atol=atol)
     ):
-        raise ValueError(
-            'Input must correspond to a 4x4 unitary matrix. Received matrix:\n' + str(mat)
-        )
+        raise ValueError(f'Input must correspond to a 4x4 unitary matrix. Received matrix:\n{mat}')
 
     # Diagonalize in magic basis.
     left, d, right = diagonalize.bidiagonalize_unitary_with_special_orthogonals(
@@ -850,7 +827,7 @@ def kak_decomposition(
     # Recover pieces.
     a1, a0 = so4_to_magic_su2s(left.T, atol=atol, rtol=rtol, check_preconditions=False)
     b1, b0 = so4_to_magic_su2s(right.T, atol=atol, rtol=rtol, check_preconditions=False)
-    w, x, y, z = (KAK_GAMMA @ np.vstack(np.angle(d))).flatten()
+    w, x, y, z = (KAK_GAMMA @ np.angle(d).reshape(-1, 1)).flatten()
     g = np.exp(1j * w)
 
     # Canonicalize.
@@ -869,7 +846,7 @@ def kak_decomposition(
 
 
 def kak_vector(
-    unitary: Union[Iterable[np.ndarray], np.ndarray],
+    unitary: Iterable[np.ndarray] | np.ndarray,
     *,
     rtol: float = 1e-5,
     atol: float = 1e-8,
@@ -888,6 +865,19 @@ def kak_vector(
     The vector entries are ordered such that
         $$ 0 ≤ |k_z| ≤ k_y ≤ k_x ≤ π/4 $$
     if $k_x$ = π/4, $k_z \geq 0$.
+
+    References:
+        The appendix section of "Lower bounds on the complexity of simulating
+        quantum gates".
+        http://arxiv.org/abs/quant-ph/0307190v1
+
+    Examples:
+        >>> cirq.kak_vector(np.eye(4))
+        array([0., 0., 0.])
+        >>> unitaries = [cirq.unitary(cirq.CZ),cirq.unitary(cirq.ISWAP)]
+        >>> cirq.kak_vector(unitaries) * 4 / np.pi
+        array([[ 1.,  0., -0.],
+               [ 1.,  1.,  0.]])
 
     Args:
         unitary: A unitary matrix, or a multi-dimensional array of unitary
@@ -908,18 +898,8 @@ def kak_vector(
         replaced by the kak vector axis (i.e. the output has shape
         `unitary.shape[:-2] + (3,)`).
 
-    References:
-        The appendix section of "Lower bounds on the complexity of simulating
-        quantum gates".
-        http://arxiv.org/abs/quant-ph/0307190v1
-
-    Examples:
-        >>> cirq.kak_vector(np.eye(4))
-        array([0., 0., 0.])
-        >>> unitaries = [cirq.unitary(cirq.CZ),cirq.unitary(cirq.ISWAP)]
-        >>> cirq.kak_vector(unitaries) * 4 / np.pi
-        array([[ 1.,  0., -0.],
-               [ 1.,  1.,  0.]])
+    Raises:
+        ValueError: If `atol` is negative or if the unitary has the wrong shape.
     """
     unitary = np.asarray(unitary)
     if len(unitary) == 0:
@@ -935,7 +915,7 @@ def kak_vector(
 
     if check_preconditions:
         actual = np.einsum('...ba,...bc', unitary.conj(), unitary) - np.eye(4)
-        if not np.allclose(actual, np.zeros_like(actual), rtol, atol):
+        if not np.allclose(actual, np.zeros_like(actual), rtol=rtol, atol=atol):
             raise ValueError(
                 'Input must correspond to a 4x4 unitary matrix or tensor of '
                 f'unitary matrices. Received input:\n{unitary}'
@@ -950,7 +930,8 @@ def kak_vector(
     # The algorithm in the appendix mentioned above is slightly incorrect in
     # that it only works for elements of SU(4). A phase correction must be
     # added to deal with U(4).
-    phases = np.log(-1j * np.linalg.det(unitary)).imag + np.pi / 2
+    with np.errstate(divide="ignore", invalid="ignore"):
+        phases = np.log(-1j * np.linalg.det(unitary)).imag + np.pi / 2
     evals *= np.exp(-1j * phases / 2)[..., np.newaxis]
 
     # The following steps follow the appendix exactly.
@@ -976,7 +957,7 @@ def _canonicalize_kak_vector(k_vec: np.ndarray, atol: float) -> np.ndarray:
     unitaries required to bring the KAK vector into canonical form.
 
     Args:
-        k_vec: THe KAK vector to be canonicalized. This input may be vectorized,
+        k_vec: The KAK vector to be canonicalized. This input may be vectorized,
             with shape (...,3), where the final axis denotes the k_vector and
             all other axes are broadcast.
         atol: How close x2 must be to π/4 to guarantee z2 >= 0.
@@ -1024,9 +1005,14 @@ def num_cnots_required(u: np.ndarray, atol: float = 1e-8) -> int:
     Controlled-Not Gates”.  https://arxiv.org/abs/quant-ph/0308045
 
     Args:
-        u: a two-qubit unitary
+        u: A two-qubit unitary.
+        atol: The absolute tolerance used to make this judgement.
+
     Returns:
-        the number of CNOT or CZ gates required to implement the unitary
+        The number of CNOT or CZ gates required to implement the unitary.
+
+    Raises:
+        ValueError: If the shape of `u` is not 4 by 4.
     """
     if u.shape != (4, 4):
         raise ValueError(f"Expected unitary of shape (4,4), instead got {u.shape}")

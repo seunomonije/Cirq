@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import pytest
 
 import cirq
 from cirq import quirk_json_to_circuit
-from cirq.interop.quirk.cells.testing import assert_url_to_circuit_returns
 from cirq.interop.quirk.cells.composite_cell import _iterator_to_iterable
+from cirq.interop.quirk.cells.testing import assert_url_to_circuit_returns
 
 
 def test_iterator_to_iterable():
@@ -78,11 +80,7 @@ def test_custom_circuit_gate():
     assert_url_to_circuit_returns(
         '{"cols":[["~d3pq"],["Y"]],'
         '"gates":[{"id":"~d3pq","circuit":{"cols":[["H"],["•","X"]]}}]}',
-        cirq.Circuit(
-            cirq.H(a),
-            cirq.X(b).controlled_by(a),
-            cirq.Y(a),
-        ),
+        cirq.Circuit(cirq.H(a), cirq.X(b).controlled_by(a), cirq.Y(a)),
     )
 
     # With name.
@@ -90,23 +88,23 @@ def test_custom_circuit_gate():
         '{"cols":[["~d3pq"],["Y"]],'
         '"gates":[{"id":"~d3pq","name":"test",'
         '"circuit":{"cols":[["H"],["•","X"]]}}]}',
-        cirq.Circuit(
-            cirq.H(a),
-            cirq.X(b).controlled_by(a),
-            cirq.Y(a),
-        ),
+        cirq.Circuit(cirq.H(a), cirq.X(b).controlled_by(a), cirq.Y(a)),
     )
 
     # With internal input.
     assert_url_to_circuit_returns(
         '{"cols":[["~a5ls"]],"gates":[{"id":"~a5ls","circuit":{"cols":[["inputA1","+=A1"]]}}]}',
-        cirq.Circuit(cirq.interop.quirk.QuirkArithmeticOperation('+=A1', target=[b], inputs=[[a]])),
+        cirq.Circuit(
+            cirq.interop.quirk.QuirkArithmeticGate('+=A1', target=[2], inputs=[[2]]).on(b, a)
+        ),
     )
 
     # With external input.
     assert_url_to_circuit_returns(
         '{"cols":[["inputA1","~r79k"]],"gates":[{"id":"~r79k","circuit":{"cols":[["+=A1"]]}}]}',
-        cirq.Circuit(cirq.interop.quirk.QuirkArithmeticOperation('+=A1', target=[b], inputs=[[a]])),
+        cirq.Circuit(
+            cirq.interop.quirk.QuirkArithmeticGate('+=A1', target=[2], inputs=[[2]]).on(b, a)
+        ),
     )
 
     # With external control.
@@ -135,9 +133,15 @@ def test_custom_circuit_gate():
         '{"cols":[["~q1fh",1,1,"inputA2"]],"gates":[{"id":"~q1fh",'
         '"circuit":{"cols":[["+=A2"],[1,"+=A2"],[1,"+=A2"]]}}]}',
         cirq.Circuit(
-            cirq.interop.quirk.QuirkArithmeticOperation('+=A2', target=[a, b], inputs=[[d, e]]),
-            cirq.interop.quirk.QuirkArithmeticOperation('+=A2', target=[b, c], inputs=[[d, e]]),
-            cirq.interop.quirk.QuirkArithmeticOperation('+=A2', target=[b, c], inputs=[[d, e]]),
+            cirq.interop.quirk.QuirkArithmeticGate('+=A2', target=[2, 2], inputs=[[2, 2]]).on(
+                a, b, d, e
+            ),
+            cirq.interop.quirk.QuirkArithmeticGate('+=A2', target=[2, 2], inputs=[[2, 2]]).on(
+                b, c, d, e
+            ),
+            cirq.interop.quirk.QuirkArithmeticGate('+=A2', target=[2, 2], inputs=[[2, 2]]).on(
+                b, c, d, e
+            ),
         ),
     )
 

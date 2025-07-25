@@ -13,20 +13,19 @@
 # limitations under the License.
 
 """Define version number here, read it from setup.py automatically,
-and warn users that the latest version of cirq uses python 3.6+"""
+and warn users that the latest version of Cirq uses Python 3.11+"""
 
 import sys
 
-if sys.version_info < (3, 6, 0):
-    # coverage: ignore
+if sys.version_info < (3, 11, 0):  # pragma: no cover
     raise SystemError(
-        "You installed the latest version of cirq but aren't on python 3.6+.\n"
+        "You installed the latest version of Cirq but aren't on Python 3.11+.\n"
         'To fix this error, you need to either:\n'
         '\n'
-        'A) Update to python 3.6 or later.\n'
+        'A) Update to Python 3.11 or later.\n'
         '- OR -\n'
         'B) Explicitly install an older deprecated-but-compatible version '
-        'of cirq (e.g. "python -m pip install cirq==0.5.*")'
+        'of Cirq (e.g. "python -m pip install cirq==1.5.0")'
     )
 
-__version__ = "0.12.0.dev"
+__version__ = "1.7.0.dev0"

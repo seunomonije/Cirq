@@ -4,38 +4,28 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import inspect
-from typing import (
-    Callable,
-    Optional,
-    Union,
-    Iterable,
-    Sequence,
-    Iterator,
-    Tuple,
-    Any,
-    cast,
-    List,
-    Dict,
-    TYPE_CHECKING,
-)
+from typing import Any, Callable, cast, Iterable, Iterator, Sequence, TYPE_CHECKING
 
 from cirq import ops, value
-from cirq.interop.quirk.cells.cell import Cell, CellMaker, CELL_SIZES
+from cirq.interop.quirk.cells.cell import Cell, CELL_SIZES, CellMaker
 
 if TYPE_CHECKING:
     import cirq
 
 
 @value.value_equality
-class QuirkArithmeticOperation(ops.ArithmeticOperation):
+class QuirkArithmeticGate(ops.ArithmeticGate):
     """Applies arithmetic to a target and some inputs.
 
     Implements Quirk-specific implicit effects like assuming that the presence
@@ -49,30 +39,26 @@ class QuirkArithmeticOperation(ops.ArithmeticOperation):
     """
 
     def __init__(
-        self,
-        identifier: str,
-        target: Sequence['cirq.Qid'],
-        inputs: Sequence[Union[Sequence['cirq.Qid'], int]],
+        self, identifier: str, target: Sequence[int], inputs: Sequence[Sequence[int] | int]
     ):
-        """Inits QuirkArithmeticOperation.
+        """Inits QuirkArithmeticGate.
 
         Args:
             identifier: The quirk identifier string for this operation.
             target: The target qubit register.
-            inputs: Qubit registers (or classical constants) that
-                determine what happens to the target.
+            inputs: Qubit registers, which correspond to the qid shape of the
+                qubits from which the input will be read, or classical
+                constants, that determine what happens to the target.
+
+        Raises:
+            ValueError: If the target is too small for a modular operation with
+                too small modulus.
         """
         self.identifier = identifier
-        self.target: Tuple['cirq.Qid', ...] = tuple(target)
-        self.inputs: Tuple[Union[Sequence['cirq.Qid'], int], ...] = tuple(
+        self.target: tuple[int, ...] = tuple(target)
+        self.inputs: tuple[Sequence[int] | int, ...] = tuple(
             e if isinstance(e, int) else tuple(e) for e in inputs
         )
-
-        for input_register in self.inputs:
-            if isinstance(input_register, int):
-                continue
-            if set(self.target) & set(input_register):
-                raise ValueError(f'Overlapping registers: {self.target} {self.inputs}')
 
         if self.operation.is_modular:
             r = inputs[-1]
@@ -84,18 +70,16 @@ class QuirkArithmeticOperation(ops.ArithmeticOperation):
                 raise ValueError(f'Target too small for modulus.\nTarget: {target}\nModulus: {r}')
 
     @property
-    def operation(self) -> '_QuirkArithmeticCallable':
+    def operation(self) -> _QuirkArithmeticCallable:
         return ARITHMETIC_OP_TABLE[self.identifier]
 
     def _value_equality_values_(self) -> Any:
         return self.identifier, self.target, self.inputs
 
-    def registers(self) -> Sequence[Union[int, Sequence['cirq.Qid']]]:
+    def registers(self) -> Sequence[int | Sequence[int]]:
         return [self.target, *self.inputs]
 
-    def with_registers(
-        self, *new_registers: Union[int, Sequence['cirq.Qid']]
-    ) -> 'QuirkArithmeticOperation':
+    def with_registers(self, *new_registers: int | Sequence[int]) -> QuirkArithmeticGate:
         if len(new_registers) != len(self.inputs) + 1:
             raise ValueError(
                 'Wrong number of registers.\n'
@@ -110,15 +94,15 @@ class QuirkArithmeticOperation(ops.ArithmeticOperation):
                 f'{new_registers[0]}.'
             )
 
-        return QuirkArithmeticOperation(self.identifier, new_registers[0], new_registers[1:])
+        return QuirkArithmeticGate(self.identifier, new_registers[0], new_registers[1:])
 
-    def apply(self, *registers: int) -> Union[int, Iterable[int]]:
+    def apply(self, *registers: int) -> int | Iterable[int]:
         return self.operation(*registers)
 
-    def _circuit_diagram_info_(self, args: 'cirq.CircuitDiagramInfoArgs') -> List[str]:
+    def _circuit_diagram_info_(self, args: cirq.CircuitDiagramInfoArgs) -> list[str]:
         lettered_args = list(zip(self.operation.letters, self.inputs))
 
-        result: List[str] = []
+        result: list[str] = []
 
         # Target register labels.
         consts = ''.join(
@@ -136,7 +120,7 @@ class QuirkArithmeticOperation(ops.ArithmeticOperation):
 
     def __repr__(self) -> str:
         return (
-            'cirq.interop.quirk.QuirkArithmeticOperation(\n'
+            'cirq.interop.quirk.QuirkArithmeticGate(\n'
             f'    {repr(self.identifier)},\n'
             f'    target={repr(self.target)},\n'
             f'    inputs={_indented_list_lines_repr(self.inputs)},\n'
@@ -144,12 +128,12 @@ class QuirkArithmeticOperation(ops.ArithmeticOperation):
         )
 
 
-_IntsToIntCallable = Union[
-    Callable[[int], int],
-    Callable[[int, int], int],
-    Callable[[int, int, int], int],
-    Callable[[int, int, int, int], int],
-]
+_IntsToIntCallable = (
+    Callable[[int], int]
+    | Callable[[int, int], int]
+    | Callable[[int, int, int], int]
+    | Callable[[int, int, int, int], int]
+)
 
 
 class _QuirkArithmeticCallable:
@@ -164,7 +148,7 @@ class _QuirkArithmeticCallable:
         self.func = func
 
         # The lambda parameter names indicate the input letter to match.
-        letters: List[str] = list(inspect.signature(self.func).parameters)
+        letters: list[str] = list(inspect.signature(self.func).parameters)
         # The target is always first, and should be ignored.
         assert letters and letters[0] == 'x'
         self.letters = tuple(letters[1:])
@@ -189,8 +173,8 @@ class ArithmeticCell(Cell):
     def __init__(
         self,
         identifier: str,
-        target: Sequence['cirq.Qid'],
-        inputs: Sequence[Union[None, Sequence['cirq.Qid'], int]],
+        target: Sequence[cirq.Qid],
+        inputs: Sequence[None | Sequence[cirq.Qid] | int],
     ):
         self.identifier = identifier
         self.target = tuple(target)
@@ -210,7 +194,7 @@ class ArithmeticCell(Cell):
             f'\n    {self.inputs!r})'
         )
 
-    def with_line_qubits_mapped_to(self, qubits: List['cirq.Qid']) -> 'Cell':
+    def with_line_qubits_mapped_to(self, qubits: list[cirq.Qid]) -> Cell:
         return ArithmeticCell(
             identifier=self.identifier,
             target=Cell._replace_qubits(self.target, qubits),
@@ -224,27 +208,27 @@ class ArithmeticCell(Cell):
     def operation(self):
         return ARITHMETIC_OP_TABLE[self.identifier]
 
-    def with_input(
-        self, letter: str, register: Union[Sequence['cirq.Qid'], int]
-    ) -> 'ArithmeticCell':
+    def with_input(self, letter: str, register: Sequence[cirq.Qid] | int) -> ArithmeticCell:
         new_inputs = [
             reg if letter != reg_letter else register
             for reg, reg_letter in zip(self.inputs, self.operation.letters)
         ]
         return ArithmeticCell(self.identifier, self.target, new_inputs)
 
-    def operations(self) -> 'cirq.OP_TREE':
+    def operations(self) -> cirq.OP_TREE:
         missing_inputs = [
             letter for reg, letter in zip(self.inputs, self.operation.letters) if reg is None
         ]
         if missing_inputs:
             raise ValueError(f'Missing input: {sorted(missing_inputs)}')
 
-        return QuirkArithmeticOperation(
+        inputs = cast(Sequence[Sequence['cirq.Qid'] | int], self.inputs)
+        qubits = self.target + tuple(q for i in self.inputs if isinstance(i, Sequence) for q in i)
+        return QuirkArithmeticGate(
             self.identifier,
-            self.target,
-            cast(Sequence[Union[Sequence['cirq.Qid'], int]], self.inputs),
-        )
+            [q.dimension for q in self.target],
+            [i if isinstance(i, int) else [q.dimension for q in i] for i in inputs],
+        ).on(*qubits)
 
 
 def _indented_list_lines_repr(items: Sequence[Any]) -> str:
@@ -307,7 +291,7 @@ def _generate_helper() -> Iterator[CellMaker]:
     )
 
 
-def _extended_gcd(a: int, b: int) -> Tuple[int, int, int]:
+def _extended_gcd(a: int, b: int) -> tuple[int, int, int]:
     if a == 0:
         return b, 0, 1
     gcd, y, x = _extended_gcd(b % a, a)
@@ -344,8 +328,7 @@ def _arithmetic_family(identifier_prefix: str, func: _IntsToIntCallable) -> Iter
 
 
 def _size_dependent_arithmetic_family(
-    identifier_prefix: str,
-    size_to_func: Callable[[int], _IntsToIntCallable],
+    identifier_prefix: str, size_to_func: Callable[[int], _IntsToIntCallable]
 ) -> Iterator[CellMaker]:
     for i in CELL_SIZES:
         yield _arithmetic_gate(identifier_prefix + str(i), size=i, func=size_to_func(i))
@@ -364,9 +347,9 @@ def _arithmetic_gate(identifier: str, size: int, func: _IntsToIntCallable) -> Ce
     )
 
 
-ARITHMETIC_OP_TABLE: Dict[str, _QuirkArithmeticCallable] = {}
+ARITHMETIC_OP_TABLE: dict[str, _QuirkArithmeticCallable] = {}
 # Caching is necessary in order to avoid overwriting entries in the table.
-_cached_cells: Optional[Tuple[CellMaker, ...]] = None
+_cached_cells: tuple[CellMaker, ...] | None = None
 
 
 def generate_all_arithmetic_cell_makers() -> Iterable[CellMaker]:

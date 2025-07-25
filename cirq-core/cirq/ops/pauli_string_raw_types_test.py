@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import pytest
 
 import cirq
@@ -48,12 +50,12 @@ def test_op_calls_validate():
 def test_on_wrong_number_qubits():
     q0, q1, q2 = _make_qubits(3)
 
-    class DummyGate(cirq.PauliStringGateOperation):
+    class ExampleGate(cirq.PauliStringGateOperation):
         def map_qubits(self, qubit_map):
             ps = self.pauli_string.map_qubits(qubit_map)
-            return DummyGate(ps)
+            return ExampleGate(ps)
 
-    g = DummyGate(cirq.PauliString({q0: cirq.X, q1: cirq.Y}))
+    g = ExampleGate(cirq.PauliString({q0: cirq.X, q1: cirq.Y}))
 
     _ = g.with_qubits(q1, q2)
     with pytest.raises(ValueError):
@@ -77,10 +79,7 @@ def test_default_text_diagram():
     q0, q1, q2 = _make_qubits(3)
     ps = cirq.PauliString({q0: cirq.X, q1: cirq.Y, q2: cirq.Z})
 
-    circuit = cirq.Circuit(
-        DiagramGate(ps),
-        DiagramGate(-ps),
-    )
+    circuit = cirq.Circuit(DiagramGate(ps), DiagramGate(-ps))
     cirq.testing.assert_has_diagram(
         circuit,
         """

@@ -1,4 +1,5 @@
 # Copyright 2020 The Cirq Developers
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -12,10 +13,13 @@
 # limitations under the License.
 """A `cirq.Sampler` implementation for the IonQ API."""
 
-from typing import List, Optional, TYPE_CHECKING
+from __future__ import annotations
 
-from cirq_ionq import results
+import itertools
+from typing import Sequence, TYPE_CHECKING
+
 import cirq
+from cirq_ionq import results
 
 if TYPE_CHECKING:
     import cirq_ionq
@@ -41,8 +45,9 @@ class Sampler(cirq.Sampler):
 
     def __init__(
         self,
-        service: 'cirq_ionq.Service',
-        target: Optional[str],
+        service: cirq_ionq.Service,
+        target: str | None,
+        timeout_seconds: int | None = None,
         seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
     ):
         """Construct the sampler.
@@ -56,25 +61,37 @@ class Sampler(cirq.Sampler):
             seed: If the target is `simulation` the seed for generating results. If None, this
                 will be `np.random`, if an int, will be `np.random.RandomState(int)`, otherwise
                 must be a modulate similar to `np.random`.
+            timeout_seconds: Length of time to wait for results. Default is specified in the job.
         """
         self._service = service
         self._target = target
         self._seed = seed
+        self._timeout_seconds = timeout_seconds
 
     def run_sweep(
-        self,
-        program: cirq.Circuit,
-        params: cirq.Sweepable,
-        repetitions: int = 1,
-    ) -> List['cirq.Result']:
-        """Runs a sweep for the given Circuit.
+        self, program: cirq.AbstractCircuit, params: cirq.Sweepable, repetitions: int = 1
+    ) -> Sequence[cirq.Result]:
+        """Samples from the given Circuit.
+
+        This allows for sweeping over different parameter values,
+        unlike the `run` method.  The `params` argument will provide a
+        mapping from `sympy.Symbol`s used within the circuit to a set of
+        values.  Unlike the `run` method, which specifies a single
+        mapping from symbol to value, this method allows a "sweep" of
+        values.  This allows a user to specify execution of a family of
+        related circuits efficiently.
 
         Note that this creates jobs for each of the sweeps in the given sweepable, and then
         blocks until all of the jobs are complete.
 
-        See `cirq.Sampler` for documentation on args.
+        Args:
+            program: The circuit to sample from.
+            params: Parameters to run with the program.
+            repetitions: The number of times to sample.
 
-        For use of the `sample` method, see the documentation of `cirq.Sampler`.
+        Returns:
+            Either a list of `cirq_ionq.QPUResult` or a list of `cirq_ionq.SimulatorResult`
+            depending on whether the job was running on an actual quantum processor or a simulator.
         """
         resolvers = [r for r in cirq.to_resolvers(params)]
         jobs = [
@@ -85,11 +102,15 @@ class Sampler(cirq.Sampler):
             )
             for resolver in resolvers
         ]
-        job_results = [job.results() for job in jobs]
+        if self._timeout_seconds is not None:
+            job_results = [job.results(timeout_seconds=self._timeout_seconds) for job in jobs]
+        else:
+            job_results = [job.results() for job in jobs]
+        flattened_job_results = list(itertools.chain.from_iterable(job_results))
         cirq_results = []
-        for result, params in zip(job_results, resolvers):
+        for result, params in zip(flattened_job_results, resolvers):
             if isinstance(result, results.QPUResult):
                 cirq_results.append(result.to_cirq_result(params=params))
-            else:
+            elif isinstance(result, results.SimulatorResult):
                 cirq_results.append(result.to_cirq_result(params=params, seed=self._seed))
         return cirq_results

@@ -12,17 +12,129 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, List
+from __future__ import annotations
+
+import abc
+from typing import Any, Sequence, TYPE_CHECKING
+
 import numpy as np
 
-import cirq
 from cirq import protocols
-from cirq.value import big_endian_int_to_digits
+from cirq._compat import _method_cache_name, cached_method, proper_repr
+from cirq.qis import quantum_state_representation
+from cirq.value import big_endian_int_to_digits, linear_dict, random_state
+
+if TYPE_CHECKING:
+    import cirq
 
 
-class CliffordTableau:
+class StabilizerState(
+    quantum_state_representation.QuantumStateRepresentation, metaclass=abc.ABCMeta
+):
+    """Interface for quantum stabilizer state representations.
+
+    This interface is used for CliffordTableau and StabilizerChForm quantum
+    state representations, allowing simulators to act on them abstractly.
+    """
+
+    @abc.abstractmethod
+    def apply_x(self, axis: int, exponent: float = 1, global_shift: float = 0):
+        """Apply an X operation to the state.
+
+        Args:
+            axis: The axis to which the operation should be applied.
+            exponent: The exponent of the X operation, must be a half-integer.
+            global_shift: The global phase shift of the raw operation, prior to
+                exponentiation. Typically the value in `gate.global_shift`.
+        Raises:
+            ValueError: If the exponent is not half-integer.
+        """
+
+    @abc.abstractmethod
+    def apply_y(self, axis: int, exponent: float = 1, global_shift: float = 0):
+        """Apply an Y operation to the state.
+
+        Args:
+            axis: The axis to which the operation should be applied.
+            exponent: The exponent of the Y operation, must be a half-integer.
+            global_shift: The global phase shift of the raw operation, prior to
+                exponentiation. Typically the value in `gate.global_shift`.
+        Raises:
+            ValueError: If the exponent is not half-integer.
+        """
+
+    @abc.abstractmethod
+    def apply_z(self, axis: int, exponent: float = 1, global_shift: float = 0):
+        """Apply a Z operation to the state.
+
+        Args:
+            axis: The axis to which the operation should be applied.
+            exponent: The exponent of the Z operation, must be a half-integer.
+            global_shift: The global phase shift of the raw operation, prior to
+                exponentiation. Typically the value in `gate.global_shift`.
+        Raises:
+            ValueError: If the exponent is not half-integer.
+        """
+
+    @abc.abstractmethod
+    def apply_h(self, axis: int, exponent: float = 1, global_shift: float = 0):
+        """Apply an H operation to the state.
+
+        Args:
+            axis: The axis to which the operation should be applied.
+            exponent: The exponent of the H operation, must be an integer.
+            global_shift: The global phase shift of the raw operation, prior to
+                exponentiation. Typically the value in `gate.global_shift`.
+        Raises:
+            ValueError: If the exponent is not an integer.
+        """
+
+    @abc.abstractmethod
+    def apply_cz(
+        self, control_axis: int, target_axis: int, exponent: float = 1, global_shift: float = 0
+    ):
+        """Apply a CZ operation to the state.
+
+        Args:
+            control_axis: The control axis of the operation.
+            target_axis: The axis to which the operation should be applied.
+            exponent: The exponent of the CZ operation, must be an integer.
+            global_shift: The global phase shift of the raw operation, prior to
+                exponentiation. Typically the value in `gate.global_shift`.
+        Raises:
+            ValueError: If the exponent is not an integer.
+        """
+
+    @abc.abstractmethod
+    def apply_cx(
+        self, control_axis: int, target_axis: int, exponent: float = 1, global_shift: float = 0
+    ):
+        """Apply a CX operation to the state.
+
+        Args:
+            control_axis: The control axis of the operation.
+            target_axis: The axis to which the operation should be applied.
+            exponent: The exponent of the CX operation, must be an integer.
+            global_shift: The global phase shift of the raw operation, prior to
+                exponentiation. Typically the value in `gate.global_shift`.
+        Raises:
+            ValueError: If the exponent is not an integer.
+        """
+
+    @abc.abstractmethod
+    def apply_global_phase(self, coefficient: linear_dict.Scalar):
+        """Apply a global phase to the state.
+
+        Args:
+            coefficient: The global phase to apply.
+        """
+
+
+class CliffordTableau(StabilizerState):
     """Tableau representation of a stabilizer state
-    (based on Aaronson and Gottesman 2006).
+
+    References:
+        - [Aaronson and Gottesman](https://arxiv.org/abs/quant-ph/0406196)
 
     The tableau stores the stabilizer generators of
     the state using three binary arrays: xs, zs, and rs.
@@ -31,7 +143,14 @@ class CliffordTableau:
     an eigenoperator of the state vector with eigenvalue one: P|psi> = |psi>.
     """
 
-    def __init__(self, num_qubits, initial_state: int = 0):
+    def __init__(
+        self,
+        num_qubits,
+        initial_state: int = 0,
+        rs: np.ndarray | None = None,
+        xs: np.ndarray | None = None,
+        zs: np.ndarray | None = None,
+    ):
         """Initializes CliffordTableau
         Args:
             num_qubits: The number of qubits in the system.
@@ -39,55 +158,109 @@ class CliffordTableau:
                 state as a big endian int.
         """
         self.n = num_qubits
-
-        # The last row (`2n+1`-th row) is the scratch row used in _measurement
+        self.initial_state = initial_state
+        # _reconstruct_* adds the last row (`2n+1`-th row) to the input arrays,
+        # which is the scratch row used in _measurement
         # computation process only. It should not be exposed to external usage.
-        self._rs = np.zeros(2 * self.n + 1, dtype=bool)
+        self._rs = self._reconstruct_rs(rs)
+        self._xs = self._reconstruct_xs(xs)
+        self._zs = self._reconstruct_zs(zs)
 
-        for (i, val) in enumerate(
-            big_endian_int_to_digits(initial_state, digit_count=num_qubits, base=2)
-        ):
-            self._rs[self.n + i] = bool(val)
+    def _reconstruct_rs(self, rs: np.ndarray | None) -> np.ndarray:
+        if rs is None:
+            new_rs = np.zeros(2 * self.n + 1, dtype=bool)
+            for i, val in enumerate(
+                big_endian_int_to_digits(self.initial_state, digit_count=self.n, base=2)
+            ):
+                new_rs[self.n + i] = bool(val)
+        else:
+            shape = rs.shape
+            if len(shape) == 1 and shape[0] == 2 * self.n and rs.dtype == np.dtype(bool):
+                new_rs = np.append(rs, np.zeros(1, dtype=bool))
+            else:
+                raise ValueError(
+                    "The value you passed for rs is not the correct shape and/or type. "
+                    "Please confirm that it's a single row with 2*num_qubits columns "
+                    "and of type bool."
+                )
+        return new_rs
 
-        self._xs = np.zeros((2 * self.n + 1, self.n), dtype=bool)
-        self._zs = np.zeros((2 * self.n + 1, self.n), dtype=bool)
+    def _reconstruct_xs(self, xs: np.ndarray | None) -> np.ndarray:
+        if xs is None:
+            new_xs = np.zeros((2 * self.n + 1, self.n), dtype=bool)
+            for i in range(self.n):
+                new_xs[i, i] = True
+        else:
+            shape = xs.shape
+            if (
+                len(shape) == 2
+                and shape[0] == 2 * self.n
+                and shape[1] == self.n
+                and xs.dtype == np.dtype(bool)
+            ):
+                new_xs = np.append(xs, np.zeros((1, self.n), dtype=bool), axis=0)
+            else:
+                raise ValueError(
+                    "The value you passed for xs is not the correct shape and/or type. "
+                    "Please confirm that it's 2*num_qubits rows, num_qubits columns, "
+                    "and of type bool."
+                )
+        return new_xs
 
-        for i in range(self.n):
-            self._xs[i, i] = True
-            self._zs[self.n + i, i] = True
+    def _reconstruct_zs(self, zs: np.ndarray | None) -> np.ndarray:
+        if zs is None:
+            new_zs = np.zeros((2 * self.n + 1, self.n), dtype=bool)
+            for i in range(self.n):
+                new_zs[self.n + i, i] = True
+        else:
+            shape = zs.shape
+            if (
+                len(shape) == 2
+                and shape[0] == 2 * self.n
+                and shape[1] == self.n
+                and zs.dtype == np.dtype(bool)
+            ):
+                new_zs = np.append(zs, np.zeros((1, self.n), dtype=bool), axis=0)
+            else:
+                raise ValueError(
+                    "The value you passed for zs is not the correct shape and/or type. "
+                    "Please confirm that it's 2*num_qubits rows, num_qubits columns, "
+                    "and of type bool."
+                )
+        return new_zs
 
     @property
-    def xs(self) -> np.array:
+    def xs(self) -> np.ndarray:
         return self._xs[:-1, :]
 
     @xs.setter
-    def xs(self, new_xs: np.array) -> None:
+    def xs(self, new_xs: np.ndarray) -> None:
         assert np.shape(new_xs) == (2 * self.n, self.n)
         self._xs[:-1, :] = np.array(new_xs).astype(bool)
 
     @property
-    def zs(self) -> np.array:
+    def zs(self) -> np.ndarray:
         return self._zs[:-1, :]
 
     @zs.setter
-    def zs(self, new_zs: np.array) -> None:
+    def zs(self, new_zs: np.ndarray) -> None:
         assert np.shape(new_zs) == (2 * self.n, self.n)
         self._zs[:-1, :] = np.array(new_zs).astype(bool)
 
     @property
-    def rs(self) -> np.array:
+    def rs(self) -> np.ndarray:
         return self._rs[:-1]
 
     @rs.setter
-    def rs(self, new_rs: np.array) -> None:
+    def rs(self, new_rs: np.ndarray) -> None:
         assert np.shape(new_rs) == (2 * self.n,)
         self._rs[:-1] = np.array(new_rs).astype(bool)
 
-    def matrix(self) -> np.array:
+    def matrix(self) -> np.ndarray:
         """Returns the 2n * 2n matrix representation of the Clifford tableau."""
         return np.concatenate([self.xs, self.zs], axis=1)
 
-    def _json_dict_(self) -> Dict[str, Any]:
+    def _json_dict_(self) -> dict[str, Any]:
         return protocols.obj_to_dict_helper(self, ['n', 'rs', 'xs', 'zs'])
 
     @classmethod
@@ -107,8 +280,7 @@ class CliffordTableau:
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
-            # coverage: ignore
-            return NotImplemented
+            return NotImplemented  # pragma: no cover
         return (
             self.n == other.n
             and np.array_equal(self.rs, other.rs)
@@ -116,10 +288,10 @@ class CliffordTableau:
             and np.array_equal(self.zs, other.zs)
         )
 
-    def __copy__(self) -> 'CliffordTableau':
+    def __copy__(self) -> CliffordTableau:
         return self.copy()
 
-    def copy(self) -> 'CliffordTableau':
+    def copy(self, deep_copy_buffers: bool = True) -> CliffordTableau:
         state = CliffordTableau(self.n)
         state.rs = self.rs.copy()
         state.xs = self.xs.copy()
@@ -127,8 +299,13 @@ class CliffordTableau:
         return state
 
     def __repr__(self) -> str:
-        stabilizers = ", ".join([repr(stab) for stab in self.stabilizers()])
-        return f'stabilizers: [{stabilizers}]'
+        return (
+            f"cirq.CliffordTableau({self.n},"
+            f"rs={proper_repr(np.delete(self._rs, len(self._rs)-1))}, "
+            f"xs={proper_repr(np.delete(self._xs, len(self._xs)-1, axis=0))},"
+            f"zs={proper_repr(np.delete(self._zs, len(self._zs)-1, axis=0))}, "
+            f"initial_state={self.initial_state})"
+        )
 
     def __str__(self) -> str:
         string = ''
@@ -136,7 +313,7 @@ class CliffordTableau:
         for i in range(self.n, 2 * self.n):
             string += '- ' if self.rs[i] else '+ '
 
-            for k in range(0, self.n):
+            for k in range(self.n):
                 if self.xs[i, k] & (not self.zs[i, k]):
                     string += 'X '
                 elif (not self.xs[i, k]) & self.zs[i, k]:
@@ -152,34 +329,44 @@ class CliffordTableau:
         return string
 
     def _str_full_(self) -> str:
-        string = ''
+        left_col_width = max(7, self.n * 2 + 3)
+        right_col_width = max(10, self.n * 2 + 4)
 
-        string += 'stable' + ' ' * max(self.n * 2 - 3, 1)
-        string += '| destable\n'
-        string += '-' * max(7, self.n * 2 + 3) + '+' + '-' * max(10, self.n * 2 + 4) + '\n'
+        def _fill_row(left: str, right: str, mid='|', fill=' ') -> str:
+            """Builds a left-aligned fixed-width row with 2 columns."""
+            return f"{left:{fill}<{left_col_width}}{mid}{right:{fill}<{right_col_width}}".rstrip()
 
-        for j in range(self.n):
-            for i in [j + self.n, j]:
-                string += '- ' if self.rs[i] else '+ '
+        def _pauli_from_matrix(r: int, c: int) -> str:
+            match (bool(self.xs[r, c]), bool(self.zs[r, c])):
+                case (True, False):
+                    return f'X{c}'
+                case (False, True):
+                    return f'Z{c}'
+                case (True, True):
+                    return f'Y{c}'
+                case _:
+                    # (False, False) is the only leftover option
+                    return '  '
 
-                for k in range(0, self.n):
-                    if self.xs[i, k] & (not self.zs[i, k]):
-                        string += 'X%d' % k
-                    elif (not self.xs[i, k]) & self.zs[i, k]:
-                        string += 'Z%d' % k
-                    elif self.xs[i, k] & self.zs[i, k]:
-                        string += 'Y%d' % k
-                    else:
-                        string += '  '
+        title_row = _fill_row('stable', ' destable')
+        divider = _fill_row('', '', mid='+', fill='-')
+        contents = [
+            _fill_row(
+                left=(
+                    f"{'-' if self.rs[i + self.n] else '+'} "
+                    f"{''.join(_pauli_from_matrix(i + self.n, j) for j in range(self.n))}"
+                ),
+                right=(
+                    f" {'-' if self.rs[i] else '+'} "
+                    f"{''.join(_pauli_from_matrix(i, j) for j in range(self.n))}"
+                ),
+            )
+            for i in range(self.n)
+        ]
 
-                if i == j + self.n:
-                    string += ' ' * max(0, 4 - self.n * 2) + ' | '
+        return '\n'.join([title_row, divider, *contents]) + '\n'
 
-            string += '\n'
-
-        return string
-
-    def then(self, second: 'CliffordTableau') -> 'CliffordTableau':
+    def then(self, second: CliffordTableau) -> CliffordTableau:
         """Returns a composed CliffordTableau of this tableau and the second tableau.
 
         Then composed tableau is equal to (up to global phase) the composed
@@ -246,7 +433,7 @@ class CliffordTableau:
 
         return merged_tableau
 
-    def inverse(self) -> 'CliffordTableau':
+    def inverse(self) -> CliffordTableau:
         """Returns the inverse Clifford tableau of this tableau."""
         ret_table = CliffordTableau(num_qubits=self.n)
         # It relies on the symplectic property of Clifford tableau.
@@ -265,7 +452,7 @@ class CliffordTableau:
         ret_table.rs = ret_table.then(self).rs
         return ret_table
 
-    def __matmul__(self, second: 'CliffordTableau'):
+    def __matmul__(self, second: CliffordTableau):
         if not isinstance(second, CliffordTableau):
             return NotImplemented
         return second.then(self)
@@ -296,10 +483,9 @@ class CliffordTableau:
         self._xs[q1, :] ^= self._xs[q2, :]
         self._zs[q1, :] ^= self._zs[q2, :]
 
-    # TODO(#3388) Add summary line to docstring.
-    # pylint: disable=docstring-first-line-empty
-    def _row_to_dense_pauli(self, i: int) -> 'cirq.DensePauliString':
-        """
+    def _row_to_dense_pauli(self, i: int) -> cirq.DensePauliString:
+        """Return a dense Pauli string for the given row in the tableau.
+
         Args:
             i: index of the row in the tableau.
 
@@ -309,6 +495,8 @@ class CliffordTableau:
             represents the effective single Pauli operator on that qubit. The
             overall phase is captured in the coefficient.
         """
+        from cirq.ops.dense_pauli_string import DensePauliString
+
         coefficient = -1 if self.rs[i] else 1
         pauli_mask = ""
 
@@ -321,19 +509,18 @@ class CliffordTableau:
                 pauli_mask += "Y"
             else:
                 pauli_mask += "I"
-        return cirq.DensePauliString(pauli_mask, coefficient=coefficient)
+        return DensePauliString(pauli_mask, coefficient=coefficient)
 
-    # pylint: enable=docstring-first-line-empty
-    def stabilizers(self) -> List['cirq.DensePauliString']:
+    def stabilizers(self) -> list[cirq.DensePauliString]:
         """Returns the stabilizer generators of the state. These
         are n operators {S_1,S_2,...,S_n} such that S_i |psi> = |psi>"""
         return [self._row_to_dense_pauli(i) for i in range(self.n, 2 * self.n)]
 
-    def destabilizers(self) -> List['cirq.DensePauliString']:
+    def destabilizers(self) -> list[cirq.DensePauliString]:
         """Returns the destabilizer generators of the state. These
         are n operators {S_1,S_2,...,S_n} such that along with the stabilizer
         generators above generate the full Pauli group on n qubits."""
-        return [self._row_to_dense_pauli(i) for i in range(0, self.n)]
+        return [self._row_to_dense_pauli(i) for i in range(self.n)]
 
     def _measure(self, q, prng: np.random.RandomState) -> int:
         """Performs a projective measurement on the q'th qubit.
@@ -373,3 +560,123 @@ class CliffordTableau:
         self.rs[p] = bool(prng.randint(2))
 
         return int(self.rs[p])
+
+    def apply_x(self, axis: int, exponent: float = 1, global_shift: float = 0):
+        if exponent % 2 == 0:
+            return
+        if exponent % 0.5 != 0.0:
+            raise ValueError('X exponent must be half integer')  # pragma: no cover
+        effective_exponent = exponent % 2
+        if effective_exponent == 0.5:
+            self.xs[:, axis] ^= self.zs[:, axis]
+            self.rs[:] ^= self.xs[:, axis] & self.zs[:, axis]
+        elif effective_exponent == 1:
+            self.rs[:] ^= self.zs[:, axis]
+        elif effective_exponent == 1.5:
+            self.rs[:] ^= self.xs[:, axis] & self.zs[:, axis]
+            self.xs[:, axis] ^= self.zs[:, axis]
+
+    def apply_y(self, axis: int, exponent: float = 1, global_shift: float = 0):
+        if exponent % 2 == 0:
+            return
+        if exponent % 0.5 != 0.0:
+            raise ValueError('Y exponent must be half integer')  # pragma: no cover
+        effective_exponent = exponent % 2
+        if effective_exponent == 0.5:
+            self.rs[:] ^= self.xs[:, axis] & (~self.zs[:, axis])
+            (self.xs[:, axis], self.zs[:, axis]) = (
+                self.zs[:, axis].copy(),
+                self.xs[:, axis].copy(),
+            )
+        elif effective_exponent == 1:
+            self.rs[:] ^= self.xs[:, axis] ^ self.zs[:, axis]
+        elif effective_exponent == 1.5:
+            self.rs[:] ^= ~(self.xs[:, axis]) & self.zs[:, axis]
+            (self.xs[:, axis], self.zs[:, axis]) = (
+                self.zs[:, axis].copy(),
+                self.xs[:, axis].copy(),
+            )
+
+    def apply_z(self, axis: int, exponent: float = 1, global_shift: float = 0):
+        if exponent % 2 == 0:
+            return
+        if exponent % 0.5 != 0.0:
+            raise ValueError('Z exponent must be half integer')  # pragma: no cover
+        effective_exponent = exponent % 2
+        if effective_exponent == 0.5:
+            self.rs[:] ^= self.xs[:, axis] & self.zs[:, axis]
+            self.zs[:, axis] ^= self.xs[:, axis]
+        elif effective_exponent == 1:
+            self.rs[:] ^= self.xs[:, axis]
+        elif effective_exponent == 1.5:
+            self.rs[:] ^= self.xs[:, axis] & (~self.zs[:, axis])
+            self.zs[:, axis] ^= self.xs[:, axis]
+
+    def apply_h(self, axis: int, exponent: float = 1, global_shift: float = 0):
+        if exponent % 2 == 0:
+            return
+        if exponent % 1 != 0:
+            raise ValueError('H exponent must be integer')  # pragma: no cover
+        self.apply_y(axis, 0.5)
+        self.apply_x(axis)
+
+    def apply_cz(
+        self, control_axis: int, target_axis: int, exponent: float = 1, global_shift: float = 0
+    ):
+        if exponent % 2 == 0:
+            return
+        if exponent % 1 != 0:
+            raise ValueError('CZ exponent must be integer')  # pragma: no cover
+        (self.xs[:, target_axis], self.zs[:, target_axis]) = (
+            self.zs[:, target_axis].copy(),
+            self.xs[:, target_axis].copy(),
+        )
+        self.rs[:] ^= self.xs[:, target_axis] & self.zs[:, target_axis]
+        self.rs[:] ^= (
+            self.xs[:, control_axis]
+            & self.zs[:, target_axis]
+            & (~(self.xs[:, target_axis] ^ self.zs[:, control_axis]))
+        )
+        self.xs[:, target_axis] ^= self.xs[:, control_axis]
+        self.zs[:, control_axis] ^= self.zs[:, target_axis]
+        (self.xs[:, target_axis], self.zs[:, target_axis]) = (
+            self.zs[:, target_axis].copy(),
+            self.xs[:, target_axis].copy(),
+        )
+        self.rs[:] ^= self.xs[:, target_axis] & self.zs[:, target_axis]
+
+    def apply_cx(
+        self, control_axis: int, target_axis: int, exponent: float = 1, global_shift: float = 0
+    ):
+        if exponent % 2 == 0:
+            return
+        if exponent % 1 != 0:
+            raise ValueError('CX exponent must be integer')  # pragma: no cover
+        self.rs[:] ^= (
+            self.xs[:, control_axis]
+            & self.zs[:, target_axis]
+            & (~(self.xs[:, target_axis] ^ self.zs[:, control_axis]))
+        )
+        self.xs[:, target_axis] ^= self.xs[:, control_axis]
+        self.zs[:, control_axis] ^= self.zs[:, target_axis]
+
+    def apply_global_phase(self, coefficient: linear_dict.Scalar):
+        pass
+
+    def measure(
+        self, axes: Sequence[int], seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None
+    ) -> list[int]:
+        return [self._measure(axis, random_state.parse_random_state(seed)) for axis in axes]
+
+    @cached_method
+    def __hash__(self) -> int:
+        return hash(self.matrix().tobytes() + self.rs.tobytes())
+
+    def __getstate__(self) -> dict[str, Any]:
+        # clear cached hash value when pickling, see #6674
+        state = self.__dict__
+        hash_attr = _method_cache_name(self.__hash__)
+        if hash_attr in state:
+            state = state.copy()
+            del state[hash_attr]
+        return state

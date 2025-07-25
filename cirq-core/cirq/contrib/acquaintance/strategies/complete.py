@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from typing import Sequence, TYPE_CHECKING
 
 from cirq import circuits, ops
-
-from cirq.contrib.acquaintance.devices import UnconstrainedAcquaintanceDevice
 from cirq.contrib.acquaintance.gates import acquaint
 from cirq.contrib.acquaintance.mutation_utils import (
     expose_acquaintance_gates,
@@ -27,14 +27,10 @@ if TYPE_CHECKING:
     import cirq
 
 
-# TODO(#3388) Add summary line to docstring.
-# pylint: disable=docstring-first-line-empty
 def complete_acquaintance_strategy(
-    qubit_order: Sequence['cirq.Qid'], acquaintance_size: int = 0, swap_gate: 'cirq.Gate' = ops.SWAP
-) -> 'cirq.Circuit':
-    """
-    Returns an acquaintance strategy capable of executing a gate corresponding
-    to any set of at most acquaintance_size qubits.
+    qubit_order: Sequence[cirq.Qid], acquaintance_size: int = 0, swap_gate: cirq.Gate = ops.SWAP
+) -> cirq.Circuit:
+    """Returns an acquaintance strategy with can handle the given number of qubits.
 
     Args:
         qubit_order: The qubits on which the strategy should be defined.
@@ -43,26 +39,23 @@ def complete_acquaintance_strategy(
         swap_gate: The gate used to swap logical indices.
 
     Returns:
-        A circuit capable of implementing any set of k-local
-        operations.
+        A circuit capable of implementing any set of k-local operations.
+
+    Raises:
+        ValueError: If `acquaintance_size` is negative.
     """
     if acquaintance_size < 0:
         raise ValueError('acquaintance_size must be non-negative.')
     if acquaintance_size == 0:
-        return circuits.Circuit(device=UnconstrainedAcquaintanceDevice)
+        return circuits.Circuit()
 
     if acquaintance_size > len(qubit_order):
-        return circuits.Circuit(device=UnconstrainedAcquaintanceDevice)
+        return circuits.Circuit()
     if acquaintance_size == len(qubit_order):
-        return circuits.Circuit(acquaint(*qubit_order), device=UnconstrainedAcquaintanceDevice)
+        return circuits.Circuit(acquaint(*qubit_order))
 
-    strategy = circuits.Circuit(
-        (acquaint(q) for q in qubit_order), device=UnconstrainedAcquaintanceDevice
-    )
+    strategy = circuits.Circuit((acquaint(q) for q in qubit_order))
     for size_to_acquaint in range(2, acquaintance_size + 1):
         expose_acquaintance_gates(strategy)
         replace_acquaintance_with_swap_network(strategy, qubit_order, size_to_acquaint, swap_gate)
     return strategy
-
-
-# pylint: enable=docstring-first-line-empty

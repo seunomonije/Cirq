@@ -11,6 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import contextlib
 import os
 import shutil
@@ -19,7 +22,7 @@ import sys
 import tempfile
 from io import StringIO
 from pathlib import Path
-from typing import Generator
+from typing import Iterator
 from unittest import mock
 
 import pytest
@@ -28,7 +31,7 @@ from dev_tools import modules
 from dev_tools.modules import Module
 
 
-def test_modules():
+def test_modules() -> None:
     mod1 = Module(
         root=Path('mod1'),
         raw_setup={
@@ -37,7 +40,9 @@ def test_modules():
             'url': 'http://github.com/quantumlib/cirq',
             'author': 'The Cirq Developers',
             'author_email': 'cirq-dev@googlegroups.com',
-            'python_requires': '>=3.6.0',
+            'maintainer': 'The Quantum AI open-source software maintainers',
+            'maintainer_email': 'quantum-oss-maintainers@google.com',
+            'python_requires': '>=3.11.0',
             'install_requires': ['req1', 'req2'],
             'license': 'Apache 2',
             'packages': ['pack1', 'pack1.sub'],
@@ -68,26 +73,20 @@ def test_modules():
     assert parent.top_level_packages == []
     assert modules.list_modules(
         search_dir=Path("dev_tools/modules_test_data"), include_parent=True
-    ) == [
-        mod1,
-        mod2,
-        parent,
-    ]
+    ) == [mod1, mod2, parent]
 
 
-def test_cli():
+def test_cli() -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = "../.."
     output = subprocess.check_output(
-        [sys.executable, "../modules.py", "list"],
-        cwd="dev_tools/modules_test_data",
-        env=env,
+        [sys.executable, "../modules.py", "list"], cwd="dev_tools/modules_test_data", env=env
     )
     assert output.decode("utf-8") == "mod1 mod2 "
 
 
 @contextlib.contextmanager
-def chdir(*, target_dir: str = None, clone_dir: str = None) -> Generator[None, None, None]:
+def chdir(*, target_dir: str | None = None, clone_dir: str | None = None) -> Iterator[None]:
     """Changes for the duration of the test the working directory.
 
     Args:
@@ -114,7 +113,7 @@ def chdir(*, target_dir: str = None, clone_dir: str = None) -> Generator[None, N
 
 
 @chdir(target_dir="dev_tools/modules_test_data")
-def test_main():
+def test_main() -> None:
     with mock.patch('sys.stdout', new=StringIO()) as output:
         modules.main(["list", "--mode", "package-path"])
         assert output.getvalue() == ' '.join(
@@ -131,7 +130,7 @@ def test_main():
 
 
 @chdir(clone_dir="dev_tools/modules_test_data")
-def test_main_replace_version():
+def test_main_replace_version() -> None:
     with mock.patch('sys.stdout', new=StringIO()) as output:
         modules.main(["print_version"])
         assert output.getvalue() == '1.2.3.dev\n'
@@ -146,28 +145,31 @@ def test_main_replace_version():
 
 
 @chdir()
-def test_get_version_on_no_modules():
+def test_get_version_on_no_modules() -> None:
     # no modules is no version
     assert modules.get_version() is None
 
 
 @chdir(clone_dir="dev_tools/modules_test_data")
-def test_get_version_on_inconsistent_version_modules():
+def test_get_version_on_inconsistent_version_modules() -> None:
     modules.replace_version(search_dir=Path("./mod2"), old="1.2.3.dev", new="1.2.4.dev")
     assert modules.get_version(search_dir=Path("./mod2")) == "1.2.4.dev"
-    with pytest.raises(ValueError, match=f"Versions should be the same, instead:"):
+    assert "1.2.4.dev" in Path("./mod2/pack2/_version_test.py").read_text("UTF-8")
+    with pytest.raises(ValueError, match="Versions should be the same, instead:"):
         modules.get_version(search_dir=Path("."))
 
 
 @chdir(clone_dir="dev_tools/modules_test_data")
-def test_replace_version(tmpdir_factory):
+def test_replace_version(tmpdir_factory) -> None:
     assert modules.get_version() == "1.2.3.dev"
     modules.replace_version(old="1.2.3.dev", new="1.2.4.dev")
     assert modules.get_version() == "1.2.4.dev"
+    assert "1.2.4.dev" in Path("./mod1/pack1/_version_test.py").read_text("UTF-8")
+    assert "1.2.4.dev" in Path("./mod2/pack2/_version_test.py").read_text("UTF-8")
 
 
 @chdir(target_dir="dev_tools/modules_test_data")
-def test_replace_version_errors():
+def test_replace_version_errors() -> None:
     with pytest.raises(ValueError, match="does not match current version"):
         modules.replace_version(old="v0.11.0", new="v0.11.1")
 
@@ -176,7 +178,7 @@ def test_replace_version_errors():
 
 
 @chdir(target_dir=None)
-def test_error():
+def test_error() -> None:
     f = open("setup.py", mode='w')
     f.write('name="test"')
     f.close()

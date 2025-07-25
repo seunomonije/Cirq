@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import logging
 import warnings
 
@@ -20,7 +22,7 @@ import pytest
 import cirq.testing
 
 
-def test_assert_logs_valid_single_logs():
+def test_assert_logs_valid_single_logs() -> None:
     with cirq.testing.assert_logs('apple'):
         logging.error('orange apple fruit')
 
@@ -43,7 +45,7 @@ def test_assert_logs_valid_single_logs():
         warnings.warn('orange apple fruit')
 
 
-def test_assert_logs_invalid_single_logs():
+def test_assert_logs_invalid_single_logs() -> None:
     match = (
         '^dog expected to appear in log messages but it was not found. '
         'Log messages: \\[\'orange apple fruit\'\\].$'
@@ -57,7 +59,7 @@ def test_assert_logs_invalid_single_logs():
             logging.error('orange apple fruit')
 
 
-def test_assert_logs_valid_multiple_logs():
+def test_assert_logs_valid_multiple_logs() -> None:
     with cirq.testing.assert_logs('apple', count=2):
         logging.error('orange apple fruit')
         logging.error('other')
@@ -84,7 +86,7 @@ def test_assert_logs_valid_multiple_logs():
         logging.warning('other two')
 
 
-def test_assert_logs_invalid_multiple_logs():
+def test_assert_logs_invalid_multiple_logs() -> None:
     with pytest.raises(AssertionError, match='^Expected 1 log message but got 2. Log messages.*$'):
         with cirq.testing.assert_logs('dog'):
             logging.error('orange apple fruit')
@@ -107,7 +109,7 @@ def test_assert_logs_invalid_multiple_logs():
             logging.error('whatever')
 
 
-def test_assert_logs_log_level():
+def test_assert_logs_log_level() -> None:
     # Default minlevel is WARNING, max level CRITICAL
     with cirq.testing.assert_logs('apple'):
         logging.error('orange apple fruit')
@@ -131,23 +133,15 @@ def test_assert_logs_log_level():
             logging.warning("info warning 1")
 
 
-def test_invalid_levels():
+def test_invalid_levels() -> None:
     with pytest.raises(ValueError, match="min_level.*max_level"):
-        cirq.testing.assert_logs("test", min_level=logging.CRITICAL, max_level=logging.WARNING)
+        with cirq.testing.assert_logs(
+            "test", min_level=logging.CRITICAL, max_level=logging.WARNING
+        ):
+            pass
 
 
-def test_deprecated():
-    with cirq.testing.assert_deprecated(
-        'level parameter of assert_logs was used but is deprecated',
-        'use min_level instead',
-        deadline="v0.12",
-    ):
-        # pylint: disable=unexpected-keyword-arg
-        with cirq.testing.assert_logs("hello critical", level=logging.CRITICAL):
-            logging.critical("hello critical")
-
-
-def test_assert_logs_warnings():
+def test_assert_logs_warnings() -> None:
     # Capture all warnings in one context, so that test cases that will
     # display a warning do not do so when the test is run.
     with warnings.catch_warnings(record=True):

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import itertools
 import random
 
@@ -24,7 +26,7 @@ import cirq.contrib.routing as ccr
 
 
 def random_seed():
-    return random.randint(0, 2 ** 32)
+    return random.randint(0, 2**32)
 
 
 @pytest.mark.parametrize(

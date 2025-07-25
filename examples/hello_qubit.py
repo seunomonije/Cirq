@@ -1,3 +1,4 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
 """Creates and simulates a simple circuit.
 
 === EXAMPLE OUTPUT ===
@@ -6,6 +7,8 @@ Circuit:
 Results:
 m=11000111111011001000
 """
+
+from __future__ import annotations
 
 import cirq
 

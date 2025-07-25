@@ -20,18 +20,20 @@ group are all equal to each other, but that items between each group are never
 equal to each other. It will also check that a==b implies hash(a)==hash(b).
 """
 
+from __future__ import annotations
+
 import collections
-
-from typing import Any, Callable
-
 import itertools
+from typing import Any, Callable
 
 
 class EqualsTester:
     """Tests equality against user-provided disjoint equivalence groups."""
 
-    def __init__(self):
-        self._groups = [(_ClassUnknownToSubjects(),)]
+    def __init__(self) -> None:
+        self._groups: list[tuple[Any | _ClassUnknownToSubjects, ...]] = [
+            (_ClassUnknownToSubjects(),)
+        ]
 
     def _verify_equality_group(self, *group_items: Any):
         """Verifies that a group is an equivalence group.
@@ -121,7 +123,7 @@ class EqualsTester:
         Adds the objects as a group.
 
         Args:
-            factories: Methods for producing independent copies of an item.
+            *factories: Methods for producing independent copies of an item.
 
         Raises:
             AssertionError: The factories produce items not equal to the others,
@@ -134,14 +136,14 @@ class EqualsTester:
 class _ClassUnknownToSubjects:
     """Equality methods should be able to deal with the unexpected."""
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         return isinstance(other, _ClassUnknownToSubjects)
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         return not self == other
 
     def __hash__(self):
-        return hash(_ClassUnknownToSubjects)
+        return hash(_ClassUnknownToSubjects)  # pragma: no cover
 
 
 class _TestsForNotImplemented:
@@ -150,11 +152,13 @@ class _TestsForNotImplemented:
     This class is equal to a specific instance or delegates by returning NotImplemented.
     """
 
-    def __init__(self, other):
+    def __init__(self, other: object) -> None:
         self.other = other
 
-    def __eq__(self, other):
-        return True if other is self.other else NotImplemented
+    def __eq__(self, other: object) -> bool:
+        if other is not self.other:
+            return NotImplemented  # pragma: no cover
+        return True
 
 
 def _eq_check(v1: Any, v2: Any) -> bool:

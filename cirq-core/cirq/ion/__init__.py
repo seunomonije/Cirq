@@ -12,33 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Types for representing and methods for manipulating ion trap operations.
-"""
+"""Trapped ion devices, gates, and compiling utilties."""
 
-from cirq.ion.ion_gates import (
-    ms,
-)
+from cirq.ops import ms as ms
 
-from cirq.ion.ion_decomposition import (
-    two_qubit_matrix_to_ion_operations,
-)
-
-from cirq.ion.ion_device import (
-    IonDevice,
-)
-
-from cirq.ion.convert_to_ion_gates import (
-    ConvertToIonGates,
-)
-
-from cirq.ion.ion_decomposition import (
-    two_qubit_matrix_to_ion_operations,
-)
-
-from cirq.ion.ion_device import (
-    IonDevice,
-)
-
-from cirq.ion.convert_to_ion_gates import (
-    ConvertToIonGates,
+from cirq.transformers import (
+    two_qubit_matrix_to_ion_operations as two_qubit_matrix_to_ion_operations,
 )

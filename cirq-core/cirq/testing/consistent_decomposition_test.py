@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
+from __future__ import annotations
 
 import numpy as np
+import pytest
+import sympy
 
 import cirq
 
 
-class GoodGateDecompose(cirq.SingleQubitGate):
+class GoodGateDecompose(cirq.testing.SingleQubitGate):
     def _decompose_(self, qubits):
         return cirq.X(qubits[0])
 
@@ -27,7 +29,7 @@ class GoodGateDecompose(cirq.SingleQubitGate):
         return np.array([[0, 1], [1, 0]])
 
 
-class BadGateDecompose(cirq.SingleQubitGate):
+class BadGateDecompose(cirq.testing.SingleQubitGate):
     def _decompose_(self, qubits):
         return cirq.Y(qubits[0])
 
@@ -35,11 +37,19 @@ class BadGateDecompose(cirq.SingleQubitGate):
         return np.array([[0, 1], [1, 0]])
 
 
-def test_assert_decompose_is_consistent_with_unitary():
+def test_assert_decompose_is_consistent_with_unitary() -> None:
     cirq.testing.assert_decompose_is_consistent_with_unitary(GoodGateDecompose())
 
     cirq.testing.assert_decompose_is_consistent_with_unitary(
         GoodGateDecompose().on(cirq.NamedQubit('q'))
+    )
+
+    cirq.testing.assert_decompose_is_consistent_with_unitary(
+        cirq.testing.PhaseUsingCleanAncilla(theta=0.1, ancilla_bitsize=3)
+    )
+
+    cirq.testing.assert_decompose_is_consistent_with_unitary(
+        cirq.testing.PhaseUsingDirtyAncilla(phase_state=1, ancilla_bitsize=4)
     )
 
     with pytest.raises(AssertionError):
@@ -48,4 +58,63 @@ def test_assert_decompose_is_consistent_with_unitary():
     with pytest.raises(AssertionError):
         cirq.testing.assert_decompose_is_consistent_with_unitary(
             BadGateDecompose().on(cirq.NamedQubit('q'))
+        )
+
+
+class GateDecomposesToDefaultGateset(cirq.Gate):
+    def _num_qubits_(self):
+        return 2
+
+    def _decompose_(self, qubits):
+        return [GoodGateDecompose().on(qubits[0]), BadGateDecompose().on(qubits[1])]
+
+
+class GateDecomposeDoesNotEndInDefaultGateset(cirq.Gate):
+    def _num_qubits_(self):
+        return 4
+
+    def _decompose_(self, qubits):
+        yield GateDecomposeNotImplemented().on_each(*qubits)
+
+
+class GateDecomposeNotImplemented(cirq.testing.SingleQubitGate):
+    def _decompose_(self, qubits):
+        return NotImplemented
+
+
+class ParameterizedGate(cirq.Gate):
+    def _num_qubits_(self):
+        return 2
+
+    def _decompose_(self, qubits):
+        yield cirq.X(qubits[0]) ** sympy.Symbol("x")
+        yield cirq.Y(qubits[1]) ** sympy.Symbol("y")
+
+
+def test_assert_decompose_ends_at_default_gateset() -> None:
+    cirq.testing.assert_decompose_ends_at_default_gateset(GateDecomposesToDefaultGateset())
+    cirq.testing.assert_decompose_ends_at_default_gateset(
+        GateDecomposesToDefaultGateset().on(*cirq.LineQubit.range(2))
+    )
+
+    cirq.testing.assert_decompose_ends_at_default_gateset(ParameterizedGate())
+    cirq.testing.assert_decompose_ends_at_default_gateset(
+        ParameterizedGate().on(*cirq.LineQubit.range(2))
+    )
+
+    with pytest.raises(AssertionError):
+        cirq.testing.assert_decompose_ends_at_default_gateset(GateDecomposeNotImplemented())
+
+    with pytest.raises(AssertionError):
+        cirq.testing.assert_decompose_ends_at_default_gateset(
+            GateDecomposeNotImplemented().on(cirq.NamedQubit('q'))
+        )
+    with pytest.raises(AssertionError):
+        cirq.testing.assert_decompose_ends_at_default_gateset(
+            GateDecomposeDoesNotEndInDefaultGateset()
+        )
+
+    with pytest.raises(AssertionError):
+        cirq.testing.assert_decompose_ends_at_default_gateset(
+            GateDecomposeDoesNotEndInDefaultGateset().on(*cirq.LineQubit.range(4))
         )

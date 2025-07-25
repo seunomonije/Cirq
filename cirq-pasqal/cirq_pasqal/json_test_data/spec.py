@@ -18,22 +18,20 @@ The actual tests live in cirq.protocols.json_serialization_test.py.
 See cirq-core/cirq/testing/json.py for a description of the framework.
 """
 
+from __future__ import annotations
+
 import pathlib
 
 import cirq_pasqal
-from cirq_pasqal.json_resolver_cache import _class_resolver_dictionary
-
 from cirq.testing.json import ModuleJsonTestSpec
+from cirq_pasqal.json_resolver_cache import _class_resolver_dictionary
 
 TestSpec = ModuleJsonTestSpec(
     name="cirq_pasqal",
     packages=[cirq_pasqal],
     test_data_path=pathlib.Path(__file__).parent,
     not_yet_serializable=[],
-    should_not_be_serialized=[
-        "PasqalNoiseModel",
-        "PasqalSampler",
-    ],
+    should_not_be_serialized=["PasqalNoiseModel", "PasqalSampler"],
     resolver_cache=_class_resolver_dictionary(),
     deprecated={},
 )

@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import sympy
+
 import cirq
 from cirq.study import flatten_expressions
-
 
 # None of the following tests use expressions of the form
 # <constant term> - <other term> because the string of expressions containing
@@ -23,14 +25,14 @@ from cirq.study import flatten_expressions
 # factor, is not consistent between sympy versions <1.4 and >=1.4.
 
 
-def test_expr_map_names():
+def test_expr_map_names() -> None:
     flattener = flatten_expressions._ParamFlattener({'collision': '<x + 2>'})
     expressions = [sympy.Symbol('x') + i for i in range(3)]
     syms = flattener.flatten(expressions)
     assert syms == [sympy.Symbol(name) for name in ('x', '<x + 1>', '<x + 2>_1')]
 
 
-def test_flattener_value_of():
+def test_flattener_value_of() -> None:
     flattener = flatten_expressions._ParamFlattener({'c': 5, 'x1': 'x1'})
     assert flattener.value_of(9) == 9
     assert flattener.value_of('c') == 5
@@ -54,46 +56,34 @@ def test_flattener_value_of():
     ]
 
 
-def test_flattener_repr():
+def test_flattener_repr() -> None:
     assert repr(flatten_expressions._ParamFlattener({'a': 1})) == ("_ParamFlattener({a: 1})")
     assert repr(
         flatten_expressions._ParamFlattener({'a': 1}, get_param_name=lambda expr: 'x')
     ).startswith("_ParamFlattener({a: 1}, get_param_name=<function ")
 
 
-def test_expression_map_repr():
+def test_expression_map_repr() -> None:
     cirq.testing.assert_equivalent_repr(cirq.ExpressionMap({'a': 'b'}))
 
 
-def test_flatten_circuit():
+def test_flatten_circuit() -> None:
     qubit = cirq.LineQubit(0)
     a = sympy.Symbol('a')
-    circuit = cirq.Circuit(
-        cirq.X(qubit) ** a,
-        cirq.X(qubit) ** (1 + a / 2),
-    )
+    circuit = cirq.Circuit(cirq.X(qubit) ** a, cirq.X(qubit) ** (1 + a / 2))
 
     c_flat, expr_map = cirq.flatten(circuit)
 
-    c_expected = cirq.Circuit(
-        cirq.X(qubit) ** a,
-        cirq.X(qubit) ** sympy.Symbol('<a/2 + 1>'),
-    )
+    c_expected = cirq.Circuit(cirq.X(qubit) ** a, cirq.X(qubit) ** sympy.Symbol('<a/2 + 1>'))
     assert c_flat == c_expected
     assert isinstance(expr_map, cirq.ExpressionMap)
-    assert expr_map == {
-        a: a,
-        1 + a / 2: sympy.Symbol('<a/2 + 1>'),
-    }
+    assert expr_map == {a: a, 1 + a / 2: sympy.Symbol('<a/2 + 1>')}
 
 
-def test_transform_params():
+def test_transform_params() -> None:
     qubit = cirq.LineQubit(0)
     a = sympy.Symbol('a')
-    circuit = cirq.Circuit(
-        cirq.X(qubit) ** (a / 4),
-        cirq.X(qubit) ** (1 + a / 2),
-    )
+    circuit = cirq.Circuit(cirq.X(qubit) ** (a / 4), cirq.X(qubit) ** (1 + a / 2))
     params = {'a': 3}
 
     _, new_params = cirq.flatten_with_params(circuit, params)
@@ -102,13 +92,10 @@ def test_transform_params():
     assert new_params == expected_params
 
 
-def test_transform_sweep():
+def test_transform_sweep() -> None:
     qubit = cirq.LineQubit(0)
     a = sympy.Symbol('a')
-    circuit = cirq.Circuit(
-        cirq.X(qubit) ** (a / 4),
-        cirq.X(qubit) ** (1 + a / 2),
-    )
+    circuit = cirq.Circuit(cirq.X(qubit) ** (a / 4), cirq.X(qubit) ** (1 + a / 2))
     sweep = cirq.Linspace(a, start=0, stop=3, length=4)
 
     _, new_sweep = cirq.flatten_with_sweep(circuit, sweep)
@@ -116,48 +103,28 @@ def test_transform_sweep():
     resolvers = list(new_sweep)
 
     expected_resolvers = [
-        cirq.ParamResolver(
-            {
-                '<a/4>': 0.0,
-                '<a/2 + 1>': 1.0,
-            }
-        ),
-        cirq.ParamResolver(
-            {
-                '<a/4>': 0.25,
-                '<a/2 + 1>': 1.5,
-            }
-        ),
-        cirq.ParamResolver(
-            {
-                '<a/4>': 0.5,
-                '<a/2 + 1>': 2,
-            }
-        ),
-        cirq.ParamResolver(
-            {
-                '<a/4>': 0.75,
-                '<a/2 + 1>': 2.5,
-            }
-        ),
+        cirq.ParamResolver({'<a/4>': 0.0, '<a/2 + 1>': 1.0}),
+        cirq.ParamResolver({'<a/4>': 0.25, '<a/2 + 1>': 1.5}),
+        cirq.ParamResolver({'<a/4>': 0.5, '<a/2 + 1>': 2}),
+        cirq.ParamResolver({'<a/4>': 0.75, '<a/2 + 1>': 2.5}),
     ]
     assert resolvers == expected_resolvers
 
 
-def test_flattener_new():
+def test_flattener_new() -> None:
     flattener = flatten_expressions._ParamFlattener({'a': 'b'})
     flattener2 = flatten_expressions._ParamFlattener(flattener)
     assert isinstance(flattener2, flatten_expressions._ParamFlattener)
     assert flattener2.param_dict == flattener.param_dict
 
 
-def test_resolver_new():
+def test_resolver_new() -> None:
     flattener = flatten_expressions._ParamFlattener({'a': 'b'})
     flattener2 = cirq.ParamResolver(flattener)
     assert flattener2 is flattener
 
 
-def test_transformed_sweep():
+def test_transformed_sweep() -> None:
     a = sympy.Symbol('a')
     sweep = cirq.Linspace('a', start=0, stop=3, length=4)
     expr_map = cirq.ExpressionMap({a / 4: 'x0', 1 - a / 2: 'x1'})
@@ -169,7 +136,7 @@ def test_transformed_sweep():
     assert params[1] == (('x0', 1 / 4), ('x1', 1 - 1 / 2))
 
 
-def test_transformed_sweep_equality():
+def test_transformed_sweep_equality() -> None:
     a = sympy.Symbol('a')
     sweep = cirq.Linspace('a', start=0, stop=3, length=4)
     expr_map = cirq.ExpressionMap({a / 4: 'x0', 1 - a / 4: 'x1'})

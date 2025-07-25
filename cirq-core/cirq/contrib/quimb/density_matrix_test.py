@@ -1,10 +1,14 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
+
+from __future__ import annotations
+
 import numpy as np
 
 import cirq
 import cirq.contrib.quimb as ccq
 
 
-def test_tensor_density_matrix_1():
+def test_tensor_density_matrix_1() -> None:
     q = cirq.LineQubit.range(2)
     c = cirq.Circuit(cirq.YPowGate(exponent=0.25).on(q[0]))
 
@@ -13,7 +17,7 @@ def test_tensor_density_matrix_1():
     np.testing.assert_allclose(rho1, rho2, atol=1e-15)
 
 
-def test_tensor_density_matrix_optional_qubits():
+def test_tensor_density_matrix_optional_qubits() -> None:
     q = cirq.LineQubit.range(2)
     c = cirq.Circuit(cirq.YPowGate(exponent=0.25).on(q[0]))
 
@@ -22,7 +26,7 @@ def test_tensor_density_matrix_optional_qubits():
     np.testing.assert_allclose(rho1, rho2, atol=1e-15)
 
 
-def test_tensor_density_matrix_noise_1():
+def test_tensor_density_matrix_noise_1() -> None:
     q = cirq.LineQubit.range(2)
     c = cirq.Circuit(
         cirq.YPowGate(exponent=0.25).on(q[0]),
@@ -35,7 +39,7 @@ def test_tensor_density_matrix_noise_1():
     np.testing.assert_allclose(rho1, rho2, atol=1e-15)
 
 
-def test_tensor_density_matrix_2():
+def test_tensor_density_matrix_2() -> None:
     q = cirq.LineQubit.range(2)
     rs = np.random.RandomState(52)
     for _ in range(10):
@@ -46,7 +50,7 @@ def test_tensor_density_matrix_2():
         np.testing.assert_allclose(rho1, rho2, atol=1e-8)
 
 
-def test_tensor_density_matrix_3():
+def test_tensor_density_matrix_3() -> None:
     qubits = cirq.LineQubit.range(10)
     circuit = cirq.testing.random_circuit(qubits=qubits, n_moments=10, op_density=0.8)
     rho1 = cirq.final_density_matrix(circuit, dtype=np.complex128)
@@ -54,10 +58,21 @@ def test_tensor_density_matrix_3():
     np.testing.assert_allclose(rho1, rho2, atol=1e-8)
 
 
-def test_tensor_density_matrix_4():
+def test_tensor_density_matrix_4() -> None:
     qubits = cirq.LineQubit.range(4)
     circuit = cirq.testing.random_circuit(qubits=qubits, n_moments=100, op_density=0.8)
-    cirq.DropEmptyMoments().optimize_circuit(circuit)
+    circuit = cirq.drop_empty_moments(circuit)
+    noise_model = cirq.ConstantQubitNoiseModel(cirq.DepolarizingChannel(p=1e-3))
+    circuit = cirq.Circuit(noise_model.noisy_moments(circuit.moments, qubits))
+    rho1 = cirq.final_density_matrix(circuit, dtype=np.complex128)
+    rho2 = ccq.tensor_density_matrix(circuit, qubits)
+    np.testing.assert_allclose(rho1, rho2, atol=1e-8)
+
+
+def test_tensor_density_matrix_gridqubit() -> None:
+    qubits = cirq.GridQubit.rect(2, 2)
+    circuit = cirq.testing.random_circuit(qubits=qubits, n_moments=10, op_density=0.8)
+    circuit = cirq.drop_empty_moments(circuit)
     noise_model = cirq.ConstantQubitNoiseModel(cirq.DepolarizingChannel(p=1e-3))
     circuit = cirq.Circuit(noise_model.noisy_moments(circuit.moments, qubits))
     rho1 = cirq.final_density_matrix(circuit, dtype=np.complex128)

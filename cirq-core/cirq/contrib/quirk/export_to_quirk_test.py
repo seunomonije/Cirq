@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import pytest
 import sympy
 
@@ -19,7 +21,7 @@ import cirq
 from cirq.contrib.quirk.export_to_quirk import circuit_to_quirk_url
 
 
-def assert_links_to(circuit: cirq.Circuit, expected: str, **kwargs):
+def assert_links_to(circuit: cirq.Circuit, expected: str, **kwargs) -> None:
     actual = circuit_to_quirk_url(circuit, **kwargs)
     actual = actual.replace('\n', '').replace(' ', '').strip()
     expected = expected.replace('],[', '],\n[').strip()
@@ -27,7 +29,7 @@ def assert_links_to(circuit: cirq.Circuit, expected: str, **kwargs):
     assert actual == expected
 
 
-def test_x_z_same_col():
+def test_x_z_same_col() -> None:
     a = cirq.NamedQubit('a')
     b = cirq.NamedQubit('b')
     circuit = cirq.Circuit(cirq.X(a), cirq.Z(b))
@@ -44,7 +46,7 @@ def test_x_z_same_col():
     )
 
 
-def test_x_cnot_split_cols():
+def test_x_cnot_split_cols() -> None:
     a = cirq.NamedQubit('a')
     b = cirq.NamedQubit('b')
     c = cirq.NamedQubit('c')
@@ -58,7 +60,7 @@ def test_x_cnot_split_cols():
     )
 
 
-def test_cz_cnot_split_cols():
+def test_cz_cnot_split_cols() -> None:
     a = cirq.NamedQubit('a')
     b = cirq.NamedQubit('b')
     c = cirq.NamedQubit('c')
@@ -72,7 +74,7 @@ def test_cz_cnot_split_cols():
     )
 
 
-def test_various_known_gate_types():
+def test_various_known_gate_types() -> None:
     a = cirq.NamedQubit('a')
     b = cirq.NamedQubit('b')
     circuit = cirq.Circuit(
@@ -116,7 +118,7 @@ def test_various_known_gate_types():
     )
 
 
-def test_parameterized_gates():
+def test_parameterized_gates() -> None:
     a = cirq.LineQubit(0)
     s = sympy.Symbol('s')
     t = sympy.Symbol('t')
@@ -177,11 +179,12 @@ class MysteryOperation(cirq.Operation):
         return MysteryOperation(*new_qubits)
 
 
-class MysteryGate(cirq.SingleQubitGate):
-    pass
+class MysteryGate(cirq.testing.SingleQubitGate):
+    def _has_mixture_(self):
+        return True
 
 
-def test_various_unknown_gate_types():
+def test_various_unknown_gate_types() -> None:
     a = cirq.NamedQubit('a')
     b = cirq.NamedQubit('b')
     circuit = cirq.Circuit(
@@ -224,7 +227,7 @@ def test_various_unknown_gate_types():
     )
 
 
-def test_formulaic_exponent_export():
+def test_formulaic_exponent_export() -> None:
     a = cirq.LineQubit(0)
     t = sympy.Symbol('t')
     assert_links_to(
@@ -240,14 +243,12 @@ def test_formulaic_exponent_export():
     )
 
 
-def test_formulaic_rotation_xyz_export():
+def test_formulaic_rotation_xyz_export() -> None:
     a = cirq.LineQubit(0)
     t = sympy.Symbol('t')
     assert_links_to(
         cirq.Circuit(
-            cirq.rx(sympy.pi / 2).on(a),
-            cirq.ry(sympy.pi * t).on(a),
-            cirq.rz(-sympy.pi * t).on(a),
+            cirq.rx(sympy.pi / 2).on(a), cirq.ry(sympy.pi * t).on(a), cirq.rz(-sympy.pi * t).on(a)
         ),
         """
         http://algassert.com/quirk#circuit={"cols":[
@@ -263,9 +264,9 @@ def test_formulaic_rotation_xyz_export():
         _ = circuit_to_quirk_url(cirq.Circuit(cirq.rx(sympy.FallingFactorial(t, t)).on(a)))
 
 
-def test_unrecognized_single_qubit_gate_with_matrix():
+def test_unrecognized_single_qubit_gate_with_matrix() -> None:
     a = cirq.NamedQubit('a')
-    circuit = cirq.Circuit(cirq.PhasedXPowGate(phase_exponent=0).on(a) ** 0.2731)
+    circuit = cirq.Circuit(cirq.PhasedXPowGate(exponent=0.2731, phase_exponent=0).on(a))
     assert_links_to(
         circuit,
         """
@@ -280,8 +281,8 @@ def test_unrecognized_single_qubit_gate_with_matrix():
     )
 
 
-def test_unknown_gate():
-    class UnknownGate(cirq.SingleQubitGate):
+def test_unknown_gate() -> None:
+    class UnknownGate(cirq.testing.SingleQubitGate):
         pass
 
     a = cirq.NamedQubit('a')
@@ -300,7 +301,7 @@ def test_unknown_gate():
     )
 
 
-def test_controlled_gate():
+def test_controlled_gate() -> None:
     a, b, c, d = cirq.LineQubit.range(4)
     circuit = cirq.Circuit(cirq.ControlledGate(cirq.ControlledGate(cirq.CZ)).on(a, d, c, b))
     assert_links_to(
@@ -335,7 +336,7 @@ def test_controlled_gate():
     )
 
 
-def test_toffoli():
+def test_toffoli() -> None:
     a, b, c, d = cirq.LineQubit.range(4)
 
     # Raw.
@@ -373,7 +374,7 @@ def test_toffoli():
     )
 
 
-def test_fredkin():
+def test_fredkin() -> None:
     a, b, c = cirq.LineQubit.range(3)
     circuit = cirq.Circuit(cirq.FREDKIN(a, b, c))
     assert_links_to(
@@ -399,7 +400,7 @@ def test_fredkin():
     )
 
 
-def test_ccz():
+def test_ccz() -> None:
     a, b, c, d = cirq.LineQubit.range(4)
 
     # Raw.

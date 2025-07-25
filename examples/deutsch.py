@@ -1,3 +1,4 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
 """Demonstrates Deutsch's algorithm.
 
 Deutsch's algorithm is one of the simplest demonstrations of quantum parallelism
@@ -25,10 +26,12 @@ Result f(0)⊕f(1):
 result=1
 """
 
+from __future__ import annotations
+
 import random
 
 import cirq
-from cirq import H, X, CNOT, measure
+from cirq import CNOT, H, measure, X
 
 
 def main():
@@ -53,13 +56,12 @@ def main():
 
 
 def make_oracle(q0, q1, secret_function):
-    """ Gates implementing the secret function f(x)."""
+    """Gates implementing the secret function f(x)."""
 
-    # coverage: ignore
-    if secret_function[0]:
+    if secret_function[0]:  # pragma: no cover
         yield [CNOT(q0, q1), X(q1)]
 
-    if secret_function[1]:
+    if secret_function[1]:  # pragma: no cover
         yield CNOT(q0, q1)
 
 

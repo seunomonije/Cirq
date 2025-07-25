@@ -1,4 +1,8 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
 """Creates and simulate a noisy circuit using cirq.ConstantQubitNoiseModel class."""
+
+from __future__ import annotations
+
 import cirq
 
 
@@ -6,9 +10,7 @@ def noisy_circuit_demo(amplitude_damp):
     """Demonstrates a noisy circuit simulation."""
     q = cirq.NamedQubit('q')
     circuit = cirq.Circuit(
-        cirq.measure(q, key='initial_state'),
-        cirq.X(q),
-        cirq.measure(q, key='after_not_gate'),
+        cirq.measure(q, key='initial_state'), cirq.X(q), cirq.measure(q, key='after_not_gate')
     )
     results = cirq.sample(
         program=circuit,

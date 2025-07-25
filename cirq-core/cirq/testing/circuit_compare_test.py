@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
+from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import cirq
-from cirq.testing.circuit_compare import (
-    _assert_apply_unitary_works_when_axes_transposed,
-)
+from cirq.testing.circuit_compare import _assert_apply_unitary_works_when_axes_transposed
 
 
 def test_sensitive_to_phase():
@@ -44,76 +43,40 @@ def test_sensitive_to_measurement_but_not_measured_phase():
 
     with pytest.raises(AssertionError):
         cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
-            cirq.Circuit([cirq.Moment([cirq.measure(q)])]), cirq.Circuit(), atol=1e-8
+            cirq.Circuit([cirq.Moment([cirq.measure(q)])]), cirq.Circuit()
         )
 
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
         cirq.Circuit([cirq.Moment([cirq.measure(q)])]),
-        cirq.Circuit(
-            [
-                cirq.Moment([cirq.Z(q)]),
-                cirq.Moment([cirq.measure(q)]),
-            ]
-        ),
-        atol=1e-8,
+        cirq.Circuit([cirq.Moment([cirq.Z(q)]), cirq.Moment([cirq.measure(q)])]),
     )
 
     a, b = cirq.LineQubit.range(2)
 
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
         cirq.Circuit([cirq.Moment([cirq.measure(a, b)])]),
-        cirq.Circuit(
-            [
-                cirq.Moment([cirq.Z(a)]),
-                cirq.Moment([cirq.measure(a, b)]),
-            ]
-        ),
-        atol=1e-8,
+        cirq.Circuit([cirq.Moment([cirq.Z(a)]), cirq.Moment([cirq.measure(a, b)])]),
     )
 
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
         cirq.Circuit([cirq.Moment([cirq.measure(a)])]),
-        cirq.Circuit(
-            [
-                cirq.Moment([cirq.Z(a)]),
-                cirq.Moment([cirq.measure(a)]),
-            ]
-        ),
-        atol=1e-8,
+        cirq.Circuit([cirq.Moment([cirq.Z(a)]), cirq.Moment([cirq.measure(a)])]),
     )
 
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
         cirq.Circuit([cirq.Moment([cirq.measure(a, b)])]),
-        cirq.Circuit(
-            [
-                cirq.Moment([cirq.T(a), cirq.S(b)]),
-                cirq.Moment([cirq.measure(a, b)]),
-            ]
-        ),
-        atol=1e-8,
+        cirq.Circuit([cirq.Moment([cirq.T(a), cirq.S(b)]), cirq.Moment([cirq.measure(a, b)])]),
     )
 
     with pytest.raises(AssertionError):
         cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
             cirq.Circuit([cirq.Moment([cirq.measure(a)])]),
-            cirq.Circuit(
-                [
-                    cirq.Moment([cirq.T(a), cirq.S(b)]),
-                    cirq.Moment([cirq.measure(a)]),
-                ]
-            ),
-            atol=1e-8,
+            cirq.Circuit([cirq.Moment([cirq.T(a), cirq.S(b)]), cirq.Moment([cirq.measure(a)])]),
         )
 
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
         cirq.Circuit([cirq.Moment([cirq.measure(a, b)])]),
-        cirq.Circuit(
-            [
-                cirq.Moment([cirq.CZ(a, b)]),
-                cirq.Moment([cirq.measure(a, b)]),
-            ]
-        ),
-        atol=1e-8,
+        cirq.Circuit([cirq.Moment([cirq.CZ(a, b)]), cirq.Moment([cirq.measure(a, b)])]),
     )
 
 
@@ -123,35 +86,20 @@ def test_sensitive_to_measurement_toggle():
     with pytest.raises(AssertionError):
         cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
             cirq.Circuit([cirq.Moment([cirq.measure(q)])]),
-            cirq.Circuit(
-                [
-                    cirq.Moment([cirq.X(q)]),
-                    cirq.Moment([cirq.measure(q)]),
-                ]
-            ),
-            atol=1e-8,
+            cirq.Circuit([cirq.Moment([cirq.X(q)]), cirq.Moment([cirq.measure(q)])]),
         )
 
     with pytest.raises(AssertionError):
         cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
             cirq.Circuit([cirq.Moment([cirq.measure(q)])]),
-            cirq.Circuit(
-                [
-                    cirq.Moment([cirq.measure(q, invert_mask=(True,))]),
-                ]
-            ),
-            atol=1e-8,
+            cirq.Circuit([cirq.Moment([cirq.measure(q, invert_mask=(True,))])]),
         )
 
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
         cirq.Circuit([cirq.Moment([cirq.measure(q)])]),
         cirq.Circuit(
-            [
-                cirq.Moment([cirq.X(q)]),
-                cirq.Moment([cirq.measure(q, invert_mask=(True,))]),
-            ]
+            [cirq.Moment([cirq.X(q)]), cirq.Moment([cirq.measure(q, invert_mask=(True,))])]
         ),
-        atol=1e-8,
     )
 
 
@@ -162,24 +110,16 @@ def test_measuring_qubits():
         cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
             cirq.Circuit([cirq.Moment([cirq.measure(a)])]),
             cirq.Circuit([cirq.Moment([cirq.measure(b)])]),
-            atol=1e-8,
         )
 
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
         cirq.Circuit([cirq.Moment([cirq.measure(a, b, invert_mask=(True,))])]),
         cirq.Circuit([cirq.Moment([cirq.measure(b, a, invert_mask=(False, True))])]),
-        atol=1e-8,
     )
 
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
-        cirq.Circuit(
-            [
-                cirq.Moment([cirq.measure(a)]),
-                cirq.Moment([cirq.measure(b)]),
-            ]
-        ),
+        cirq.Circuit([cirq.Moment([cirq.measure(a)]), cirq.Moment([cirq.measure(b)])]),
         cirq.Circuit([cirq.Moment([cirq.measure(a, b)])]),
-        atol=1e-8,
     )
 
 
@@ -192,11 +132,12 @@ def test_random_same_matrix(circuit):
         cirq.MatrixGate(circuit.unitary(qubits_that_should_be_present=[a, b])).on(a, b)
     )
 
-    cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(circuit, same, atol=1e-8)
+    cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(circuit, same)
 
-    circuit.append(cirq.measure(a))
+    mutable_circuit = circuit.copy()
+    mutable_circuit.append(cirq.measure(a))
     same.append(cirq.measure(a))
-    cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(circuit, same, atol=1e-8)
+    cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(mutable_circuit, same)
 
 
 def test_correct_qubit_ordering():
@@ -204,14 +145,12 @@ def test_correct_qubit_ordering():
     cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
         cirq.Circuit(cirq.Z(a), cirq.Z(b), cirq.measure(b)),
         cirq.Circuit(cirq.Z(a), cirq.measure(b)),
-        atol=1e-8,
     )
 
     with pytest.raises(AssertionError):
         cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(
             cirq.Circuit(cirq.Z(a), cirq.Z(b), cirq.measure(b)),
             cirq.Circuit(cirq.Z(b), cirq.measure(b)),
-            atol=1e-8,
         )
 
 
@@ -228,36 +167,56 @@ def test_known_old_failure():
             cirq.Z(b) ** 0.1,
             cirq.measure(a, b),
         ),
-        atol=1e-8,
     )
 
 
 def test_assert_same_circuits():
     a, b = cirq.LineQubit.range(2)
 
-    cirq.testing.assert_same_circuits(
-        cirq.Circuit(cirq.H(a)),
-        cirq.Circuit(cirq.H(a)),
-    )
+    cirq.testing.assert_same_circuits(cirq.Circuit(cirq.H(a)), cirq.Circuit(cirq.H(a)))
 
     with pytest.raises(AssertionError) as exc_info:
-        cirq.testing.assert_same_circuits(
-            cirq.Circuit(cirq.H(a)),
-            cirq.Circuit(),
-        )
+        cirq.testing.assert_same_circuits(cirq.Circuit(cirq.H(a)), cirq.Circuit())
     assert 'differing moment:\n0\n' in exc_info.value.args[0]
 
     with pytest.raises(AssertionError) as exc_info:
         cirq.testing.assert_same_circuits(
-            cirq.Circuit(cirq.H(a), cirq.H(a)),
-            cirq.Circuit(cirq.H(a), cirq.CZ(a, b)),
+            cirq.Circuit(cirq.H(a), cirq.H(a)), cirq.Circuit(cirq.H(a), cirq.CZ(a, b))
         )
     assert 'differing moment:\n1\n' in exc_info.value.args[0]
 
     with pytest.raises(AssertionError):
         cirq.testing.assert_same_circuits(
-            cirq.Circuit(cirq.CNOT(a, b)),
-            cirq.Circuit(cirq.ControlledGate(cirq.X).on(a, b)),
+            cirq.Circuit(cirq.CNOT(a, b)), cirq.Circuit(cirq.ControlledGate(cirq.X).on(a, b))
+        )
+
+
+def test_assert_circuits_have_same_unitary_given_final_permutation():
+    q = cirq.LineQubit.range(5)
+    expected = cirq.Circuit([cirq.Moment(cirq.CNOT(q[2], q[1]), cirq.CNOT(q[3], q[0]))])
+    actual = cirq.Circuit(
+        [
+            cirq.Moment(cirq.CNOT(q[2], q[1])),
+            cirq.Moment(cirq.SWAP(q[0], q[2])),
+            cirq.Moment(cirq.SWAP(q[0], q[1])),
+            cirq.Moment(cirq.CNOT(q[3], q[2])),
+        ]
+    )
+    qubit_map = {q[0]: q[2], q[2]: q[1], q[1]: q[0]}
+    cirq.testing.assert_circuits_have_same_unitary_given_final_permutation(
+        actual, expected, qubit_map
+    )
+
+    qubit_map.update({q[2]: q[3]})
+    with pytest.raises(ValueError, match="'qubit_map' must have the same set"):
+        cirq.testing.assert_circuits_have_same_unitary_given_final_permutation(
+            actual, expected, qubit_map=qubit_map
+        )
+
+    bad_qubit_map = {q[0]: q[2], q[2]: q[4], q[4]: q[0]}
+    with pytest.raises(ValueError, match="'qubit_map' must be a mapping"):
+        cirq.testing.assert_circuits_have_same_unitary_given_final_permutation(
+            actual, expected, qubit_map=bad_qubit_map
         )
 
 
@@ -304,13 +263,79 @@ Highlighted differences:
     assert expected_error in ex_info.value.args[0]
 
 
+def test_assert_has_consistent_apply_channel():
+    class Correct:
+        def _apply_channel_(self, args: cirq.ApplyChannelArgs):
+            args.target_tensor[...] = 0
+            return args.target_tensor
+
+        def _kraus_(self):
+            return [np.array([[0, 0], [0, 0]])]
+
+        def _num_qubits_(self):
+            return 1
+
+    cirq.testing.assert_has_consistent_apply_channel(Correct())
+
+    class Wrong:
+        def _apply_channel_(self, args: cirq.ApplyChannelArgs):
+            args.target_tensor[...] = 0
+            return args.target_tensor
+
+        def _kraus_(self):
+            return [np.array([[1, 0], [0, 0]])]
+
+        def _num_qubits_(self):
+            return 1
+
+    with pytest.raises(AssertionError):
+        cirq.testing.assert_has_consistent_apply_channel(Wrong())
+
+    class NoNothing:
+        def _apply_channel_(self, args: cirq.ApplyChannelArgs):
+            return NotImplemented
+
+        def _kraus_(self):
+            return NotImplemented
+
+        def _num_qubits_(self):
+            return 1
+
+    cirq.testing.assert_has_consistent_apply_channel(NoNothing())
+
+    class NoKraus:
+        def _apply_channel_(self, args: cirq.ApplyChannelArgs):
+            return args.target_tensor
+
+        def _kraus_(self):
+            return NotImplemented
+
+        def _num_qubits_(self):
+            return 1
+
+    with pytest.raises(AssertionError):
+        cirq.testing.assert_has_consistent_apply_channel(NoKraus())
+
+    class NoApply:
+        def _apply_channel_(self, args: cirq.ApplyChannelArgs):
+            return NotImplemented
+
+        def _kraus_(self):
+            return [np.array([[0, 0], [0, 0]])]
+
+        def _num_qubits_(self):
+            return 1
+
+    cirq.testing.assert_has_consistent_apply_channel(NoApply())
+
+
 def test_assert_has_consistent_apply_unitary():
     class IdentityReturningUnalteredWorkspace:
         def _apply_unitary_(self, args: cirq.ApplyUnitaryArgs) -> np.ndarray:
             return args.available_buffer
 
         def _unitary_(self):
-            return np.eye(2)
+            return np.eye(2)  # pragma: no cover
 
         def _num_qubits_(self):
             return 1
@@ -343,7 +368,7 @@ def test_assert_has_consistent_apply_unitary():
             return args.available_buffer
 
         def _unitary_(self):
-            return np.array([[0, 1], [1, 0]])
+            return np.array([[0, 1], [1, 0]])  # pragma: no cover
 
         def _num_qubits_(self):
             return 1
@@ -460,7 +485,7 @@ def test_assert_has_consistent_qid_shape():
 
     class ConsistentOp(cirq.Operation):
         def with_qubits(self, *qubits):
-            raise NotImplementedError  # coverage: ignore
+            raise NotImplementedError
 
         @property
         def qubits(self):
@@ -472,47 +497,47 @@ def test_assert_has_consistent_qid_shape():
         def _qid_shape_(self):
             return (1, 2, 3, 4)
 
-    # The 'coverage: ignore' comments in the InconsistentOp classes is needed
+    # The 'pragma: no cover' comments in the InconsistentOp classes is needed
     # because test_assert_has_consistent_qid_shape may only need to check two of
     # the three methods before finding an inconsistency and throwing an error.
     class InconsistentOp1(cirq.Operation):
         def with_qubits(self, *qubits):
-            raise NotImplementedError  # coverage: ignore
+            raise NotImplementedError
 
         @property
         def qubits(self):
             return cirq.LineQubit.range(2)
 
         def _num_qubits_(self):
-            return 4  # coverage: ignore
+            return 4  # pragma: no cover
 
         def _qid_shape_(self):
-            return (1, 2, 3, 4)  # coverage: ignore
+            return (1, 2, 3, 4)  # pragma: no cover
 
     class InconsistentOp2(cirq.Operation):
         def with_qubits(self, *qubits):
-            raise NotImplementedError  # coverage: ignore
+            raise NotImplementedError
 
         @property
         def qubits(self):
-            return cirq.LineQubit.range(4)  # coverage: ignore
+            return cirq.LineQubit.range(4)  # pragma: no cover
 
         def _num_qubits_(self):
             return 2
 
         def _qid_shape_(self):
-            return (1, 2, 3, 4)  # coverage: ignore
+            return (1, 2, 3, 4)  # pragma: no cover
 
     class InconsistentOp3(cirq.Operation):
         def with_qubits(self, *qubits):
-            raise NotImplementedError  # coverage: ignore
+            raise NotImplementedError
 
         @property
         def qubits(self):
-            return cirq.LineQubit.range(4)  # coverage: ignore
+            return cirq.LineQubit.range(4)  # pragma: no cover
 
         def _num_qubits_(self):
-            return 4  # coverage: ignore
+            return 4  # pragma: no cover
 
         def _qid_shape_(self):
             return 1, 2

@@ -11,9 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import enum
 
-from typing import Any, List, Optional, TYPE_CHECKING, Union
+from __future__ import annotations
+
+import enum
+from typing import Any, TYPE_CHECKING
 
 import pandas as pd
 import sympy
@@ -36,17 +38,17 @@ _T2_COLUMNS = ['delay_ns', 0, 1]
 
 
 def t2_decay(
-    sampler: 'cirq.Sampler',
+    sampler: cirq.Sampler,
     *,
-    qubit: 'cirq.Qid',
-    experiment_type: 'ExperimentType' = ExperimentType.RAMSEY,
+    qubit: cirq.Qid,
+    experiment_type: ExperimentType = ExperimentType.RAMSEY,
     num_points: int,
-    max_delay: 'cirq.DURATION_LIKE',
-    min_delay: 'cirq.DURATION_LIKE' = None,
+    max_delay: cirq.DURATION_LIKE,
+    min_delay: cirq.DURATION_LIKE = None,
     repetitions: int = 1000,
-    delay_sweep: Optional[study.Sweep] = None,
-    num_pulses: List[int] = None,
-) -> Union['cirq.experiments.T2DecayResult', List['cirq.experiments.T2DecayResult']]:
+    delay_sweep: study.Sweep | None = None,
+    num_pulses: list[int] | None = None,
+) -> cirq.experiments.T2DecayResult | list[cirq.experiments.T2DecayResult]:
     """Runs a t2 transverse relaxation experiment.
 
     Initializes a qubit into a superposition state, evolves the system using
@@ -121,15 +123,25 @@ def t2_decay(
              from min_delay to max_delay with linear steps.
         num_pulses: For CPMG, a list of the number of pulses to use.
              If multiple pulses are specified, each will be swept on.
+
     Returns:
         A T2DecayResult object that stores and can plot the data.
+
+    Raises:
+        ValueError: If invalid parameters are specified, negative repetitions, max
+            less than min durations, negative min delays, or an unsupported experiment
+            configuraiton.
     """
     min_delay_dur = value.Duration(min_delay)
     max_delay_dur = value.Duration(max_delay)
+    min_delay_nanos = min_delay_dur.total_nanos()
+    max_delay_nanos = max_delay_dur.total_nanos()
 
     # Input validation
     if repetitions <= 0:
         raise ValueError('repetitions <= 0')
+    if isinstance(min_delay_nanos, sympy.Expr) or isinstance(max_delay_nanos, sympy.Expr):
+        raise ValueError('min_delay and max_delay cannot be sympy expressions.')
     if max_delay_dur < min_delay_dur:
         raise ValueError('max_delay < min_delay')
     if min_delay_dur < 0:
@@ -145,10 +157,7 @@ def t2_decay(
 
     if not delay_sweep:
         delay_sweep = study.Linspace(
-            delay_var,
-            start=min_delay_dur.total_nanos(),
-            stop=max_delay_dur.total_nanos(),
-            length=num_points,
+            delay_var, start=min_delay_nanos, stop=max_delay_nanos, length=num_points
         )
     if delay_sweep.keys != ['delay_ns']:
         raise ValueError('delay_sweep must be a SingleSweep with delay_ns parameter')
@@ -159,10 +168,7 @@ def t2_decay(
         # Evolve the state for a given amount of delay time
         # Then measure the state in both X and Y bases.
 
-        circuit = circuits.Circuit(
-            ops.Y(qubit) ** 0.5,
-            ops.wait(qubit, nanos=delay_var),
-        )
+        circuit = circuits.Circuit(ops.Y(qubit) ** 0.5, ops.wait(qubit, nanos=delay_var))
     else:
         if experiment_type == ExperimentType.HAHN_ECHO:
             # Hahn / Spin Echo T2 experiment
@@ -190,8 +196,7 @@ def t2_decay(
     circuit.append(ops.Y(qubit) ** inv_y_var)
     circuit.append(ops.measure(qubit, key='output'))
     tomography_sweep = study.Zip(
-        study.Points('inv_x', [0.0, 0.5]),
-        study.Points('inv_y', [-0.5, 0.0]),
+        study.Points('inv_x', [0.0, 0.5]), study.Points('inv_y', [-0.5, 0.0])
     )
 
     if num_pulses and max_pulses > 0:
@@ -232,7 +237,7 @@ def _create_tabulation(measurements: pd.DataFrame) -> pd.DataFrame:
     return tabulation
 
 
-def _cpmg_circuit(qubit: 'cirq.Qid', delay_var: sympy.Symbol, max_pulses: int) -> 'cirq.Circuit':
+def _cpmg_circuit(qubit: cirq.Qid, delay_var: sympy.Symbol, max_pulses: int) -> cirq.Circuit:
     """Creates a CPMG circuit for a given qubit.
 
     The circuit will look like:
@@ -254,7 +259,7 @@ def _cpmg_circuit(qubit: 'cirq.Qid', delay_var: sympy.Symbol, max_pulses: int) -
     return circuit
 
 
-def _cpmg_sweep(num_pulses: List[int]):
+def _cpmg_sweep(num_pulses: list[int]):
     """Returns a sweep for a circuit created by _cpmg_circuit.
 
     The circuit in _cpmg_circuit parameterizes the pulses, so this function
@@ -281,8 +286,13 @@ class T2DecayResult:
         """Inits T2DecayResult.
 
         Args:
-            data: A data frame with three columns:
-                delay_ns, false_count, true_count.
+            x_basis_data: Data frame in x basis with three columns: delay_ns,
+                false_count, and true_count.
+            y_basis_data: Data frame in y basis with three columns: delay_ns,
+                false_count,  and true_count.
+
+        Raises:
+            ValueError: If the supplied data does not have the proper columns.
         """
         x_cols = list(x_basis_data.columns)
         y_cols = list(y_basis_data.columns)
@@ -307,6 +317,9 @@ class T2DecayResult:
         Assuming that the data is measured in the Pauli basis of the operator,
         then the expectation of the Pauli operator would be +1 if the
         measurement is all ones and -1 if the measurement is all zeros.
+
+        Args:
+            data: measurement data to compute the expecation for.
 
         Returns:
             Data frame with columns 'delay_ns', 'num_pulses' and 'value'
@@ -341,7 +354,7 @@ class T2DecayResult:
         """
         return self._expectation_pauli_y
 
-    def plot_expectations(self, ax: Optional[plt.Axes] = None, **plot_kwargs: Any) -> plt.Axes:
+    def plot_expectations(self, ax: plt.Axes | None = None, **plot_kwargs: Any) -> plt.Axes:
         """Plots the expectation values of Pauli operators versus delay time.
 
         Args:
@@ -382,7 +395,7 @@ class T2DecayResult:
             fig.show()
         return ax
 
-    def plot_bloch_vector(self, ax: Optional[plt.Axes] = None, **plot_kwargs: Any) -> plt.Axes:
+    def plot_bloch_vector(self, ax: plt.Axes | None = None, **plot_kwargs: Any) -> plt.Axes:
         """Plots the estimated length of the Bloch vector versus time.
 
         This plot estimates the Bloch Vector by squaring the Pauli expectation
@@ -409,9 +422,9 @@ class T2DecayResult:
 
         # Estimate length of Bloch vector (projected to xy plane)
         # by squaring <X> and <Y> expectation values
-        bloch_vector = self._expectation_pauli_x ** 2 + self._expectation_pauli_y ** 2
+        bloch_vector = self._expectation_pauli_x**2 + self._expectation_pauli_y**2
 
-        ax.plot(self._expectation_pauli_x['delay_ns'], bloch_vector, 'r+-', **plot_kwargs)
+        ax.plot(self._expectation_pauli_x['delay_ns'], bloch_vector['value'], 'r+-', **plot_kwargs)
         ax.set_xlabel(r"Delay between initialization and measurement (nanoseconds)")
         ax.set_ylabel('Bloch Vector X-Y Projection Squared')
         ax.set_title('T2 Decay Experiment Data')

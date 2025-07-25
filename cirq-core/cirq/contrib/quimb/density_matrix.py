@@ -1,5 +1,9 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
+
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Sequence, Dict, Union, Tuple, List, Optional, cast, Iterable
+from typing import Sequence
 
 import numpy as np
 import quimb
@@ -9,19 +13,19 @@ import cirq
 
 
 @lru_cache()
-def _qpos_tag(qubits: Union[cirq.LineQubit, Tuple[cirq.LineQubit]]):
+def _qpos_tag(qubits: cirq.Qid | tuple[cirq.Qid]):
     """Given a qubit or qubits, return a "position tag" (used for drawing).
 
     For multiple qubits, the tag is for the first qubit.
     """
-    if isinstance(qubits, cirq.LineQubit):
+    if isinstance(qubits, cirq.Qid):
         return _qpos_tag((qubits,))
-    x = min(q.x for q in qubits)
+    x = min(qubits)
     return f'q{x}'
 
 
 @lru_cache()
-def _qpos_y(qubits: Union[cirq.LineQubit, Tuple[cirq.LineQubit]], tot_n_qubits: int):
+def _qpos_y(qubits: cirq.Qid | tuple[cirq.Qid, ...], all_qubits: tuple[cirq.Qid, ...]) -> float:
     """Given a qubit or qubits, return the position y value (used for drawing).
 
     For multiple qubits, the position is the mean of the qubit indices.
@@ -29,21 +33,23 @@ def _qpos_y(qubits: Union[cirq.LineQubit, Tuple[cirq.LineQubit]], tot_n_qubits: 
 
     Args:
         qubits: The qubits involved in the tensor.
-        tot_n_qubits: The total number of qubits in the circuit, allowing us
+        all_qubits: All qubits in the circuit, allowing us
             to position the zero'th qubit at the top.
     """
-    if isinstance(qubits, cirq.LineQubit):
-        return _qpos_y((qubits,), tot_n_qubits)
-    x = np.mean([q.x for q in qubits]).item()
-    return tot_n_qubits - x - 1
+    if isinstance(qubits, cirq.Qid):
+        return _qpos_y((qubits,), all_qubits)
+
+    pos = [all_qubits.index(q) for q in qubits]
+    x = np.mean(pos).item()
+    return len(all_qubits) - x - 1
 
 
 def _add_to_positions(
-    positions: Dict[Tuple[str, str], Tuple[float, float]],
+    positions: dict[tuple[str, str], tuple[float, float]],
     mi: int,
-    qubits: Union[cirq.LineQubit, Tuple[cirq.LineQubit]],
+    qubits: cirq.Qid | tuple[cirq.Qid],
     *,
-    tot_n_qubits: int,
+    all_qubits: tuple[cirq.Qid, ...],
     x_scale,
     y_scale,
     x_nudge,
@@ -55,7 +61,7 @@ def _add_to_positions(
         positions: The dictionary to update. Quimb will consume this for drawing
         mi: Moment index (used for x-positioning)
         qubits: The qubits (used for y-positioning)
-        tot_n_qubits: The total number of qubits in the circuit, allowing us
+        all_qubits: All qubits in the circuit, allowing us
             to position the zero'th qubit at the top.
         x_scale: Stretch coordinates in the x direction
         y_scale: Stretch coordinates in the y direction
@@ -65,14 +71,14 @@ def _add_to_positions(
             the lines.
         yb_offset: Offset the "backwards" circuit by this much.
     """
-    qy = _qpos_y(qubits, tot_n_qubits)
+    qy = _qpos_y(qubits, all_qubits)
     positions[(f'i{mi}f', _qpos_tag(qubits))] = (mi * x_scale + qy * x_nudge, y_scale * qy)
     positions[(f'i{mi}b', _qpos_tag(qubits))] = (mi * x_scale, y_scale * qy + yb_offset)
 
 
 def circuit_to_density_matrix_tensors(
-    circuit: cirq.Circuit, qubits: Optional[Sequence[cirq.LineQubit]] = None
-) -> Tuple[List[qtn.Tensor], Dict['cirq.Qid', int], Dict[Tuple[str, str], Tuple[float, float]]]:
+    circuit: cirq.Circuit, qubits: Sequence[cirq.Qid] | None = None
+) -> tuple[list[qtn.Tensor], dict[cirq.Qid, int], dict[tuple[str, str], tuple[float, float]]]:
     """Given a circuit with mixtures or channels, construct a tensor network
     representation of the density matrix.
 
@@ -85,7 +91,8 @@ def circuit_to_density_matrix_tensors(
     Args:
         circuit: The circuit containing operations that support the
             cirq.unitary() or cirq.kraus() protocols.
-        qubits: The qubits in the circuit.
+        qubits: The qubits in the circuit. The `positions` return argument
+            will position qubits according to their index in this list.
 
     Returns:
         tensors: A list of Quimb Tensor objects
@@ -95,15 +102,18 @@ def circuit_to_density_matrix_tensors(
         positions: A positions dictionary suitable for passing to tn.graph()'s
             `fix` argument to draw the resulting tensor network similar to a
             quantum circuit.
+
+    Raises:
+        ValueError: If an op is encountered that cannot be converted.
     """
     if qubits is None:
-        # coverage: ignore
-        qubits = sorted(cast(Iterable[cirq.LineQubit], circuit.all_qubits()))
+        qubits = sorted(circuit.all_qubits())  # pragma: no cover
+    qubits = tuple(qubits)
 
-    qubit_frontier: Dict[cirq.Qid, int] = {q: 0 for q in qubits}
+    qubit_frontier: dict[cirq.Qid, int] = {q: 0 for q in qubits}
     kraus_frontier = 0
-    positions: Dict[Tuple[str, str], Tuple[float, float]] = {}
-    tensors: List[qtn.Tensor] = []
+    positions: dict[tuple[str, str], tuple[float, float]] = {}
+    tensors: list[qtn.Tensor] = []
 
     x_scale = 2
     y_scale = 3
@@ -111,12 +121,12 @@ def circuit_to_density_matrix_tensors(
     n_qubits = len(qubits)
     yb_offset = (n_qubits + 0.5) * y_scale
 
-    def _positions(mi, qubits):
+    def _positions(_mi, _these_qubits):
         return _add_to_positions(
             positions,
-            mi,
-            qubits,
-            tot_n_qubits=n_qubits,
+            _mi,
+            _these_qubits,
+            all_qubits=qubits,
             x_scale=x_scale,
             y_scale=y_scale,
             x_nudge=x_nudge,
@@ -128,22 +138,22 @@ def circuit_to_density_matrix_tensors(
     for q in qubits:
         tensors += [
             qtn.Tensor(
-                data=quimb.up().squeeze(), inds=(f'nf0_q{q.x}',), tags={'Q0', 'i0f', _qpos_tag(q)}
+                data=quimb.up().squeeze(), inds=(f'nf0_q{q}',), tags={'Q0', 'i0f', _qpos_tag(q)}
             ),
             qtn.Tensor(
-                data=quimb.up().squeeze(), inds=(f'nb0_q{q.x}',), tags={'Q0', 'i0b', _qpos_tag(q)}
+                data=quimb.up().squeeze(), inds=(f'nb0_q{q}',), tags={'Q0', 'i0b', _qpos_tag(q)}
             ),
         ]
         _positions(0, q)
 
     for mi, moment in enumerate(circuit.moments):
         for op in moment.operations:
-            start_inds_f = [f'nf{qubit_frontier[q]}_q{q.x}' for q in op.qubits]
-            start_inds_b = [f'nb{qubit_frontier[q]}_q{q.x}' for q in op.qubits]
+            start_inds_f = [f'nf{qubit_frontier[q]}_q{q}' for q in op.qubits]
+            start_inds_b = [f'nb{qubit_frontier[q]}_q{q}' for q in op.qubits]
             for q in op.qubits:
                 qubit_frontier[q] += 1
-            end_inds_f = [f'nf{qubit_frontier[q]}_q{q.x}' for q in op.qubits]
-            end_inds_b = [f'nb{qubit_frontier[q]}_q{q.x}' for q in op.qubits]
+            end_inds_f = [f'nf{qubit_frontier[q]}_q{q}' for q in op.qubits]
+            end_inds_b = [f'nb{qubit_frontier[q]}_q{q}' for q in op.qubits]
 
             if cirq.has_unitary(op):
                 U = cirq.unitary(op).reshape((2,) * 2 * len(op.qubits)).astype(np.complex128)
@@ -180,14 +190,14 @@ def circuit_to_density_matrix_tensors(
                 )
                 kraus_frontier += 1
             else:
-                raise ValueError(repr(op))  # coverage: ignore
+                raise ValueError(repr(op))  # pragma: no cover
 
             _positions(mi + 1, op.qubits)
     return tensors, qubit_frontier, positions
 
 
 def tensor_density_matrix(
-    circuit: cirq.Circuit, qubits: Optional[List[cirq.LineQubit]] = None
+    circuit: cirq.Circuit, qubits: Sequence[cirq.Qid] | None = None
 ) -> np.ndarray:
     """Given a circuit with mixtures or channels, contract a tensor network
     representing the resultant density matrix.
@@ -199,12 +209,12 @@ def tensor_density_matrix(
     is encouraged for your particular problem if performance is important.
     """
     if qubits is None:
-        qubits = sorted(cast(Iterable[cirq.LineQubit], circuit.all_qubits()))
+        qubits = sorted(circuit.all_qubits())
 
     tensors, qubit_frontier, _ = circuit_to_density_matrix_tensors(circuit=circuit, qubits=qubits)
     tn = qtn.TensorNetwork(tensors)
-    f_inds = tuple(f'nf{qubit_frontier[q]}_q{q.x}' for q in qubits)
-    b_inds = tuple(f'nb{qubit_frontier[q]}_q{q.x}' for q in qubits)
+    f_inds = tuple(f'nf{qubit_frontier[q]}_q{q}' for q in qubits)
+    b_inds = tuple(f'nb{qubit_frontier[q]}_q{q}' for q in qubits)
     if len(qubits) <= 6:
         # Heuristic: don't try to determine best order for low qubit number
         # Just contract in time.

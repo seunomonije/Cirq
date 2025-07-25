@@ -3,20 +3,22 @@
 pytest
 pytest-asyncio
 pytest-cov
+pytest-randomly
+coverage~=7.4
 
 # for parallel testing notebooks
-pytest-xdist~=2.2.0
-filelock~=3.0.12
+pytest-xdist
+filelock~=3.1
 
 # For testing time specific logic
-freezegun~=0.3.15
+freezegun
 
-# for python 3.7 and below needs to be installed
-importlib-metadata; python_version < '3.8'
+# For test_metadata_distributions_after_deprecated_submodule
+importlib-metadata
 
 # codeowners test dependency
-codeowners; python_version >= '3.7'
+codeowners; platform_system != "Windows"
 
 # for creating isolated environments
-virtualenv
+virtualenv~=20.23
 virtualenv-clone

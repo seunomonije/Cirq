@@ -18,13 +18,12 @@ __pycache__
 
 # packaging
 *.egg-info/
-
-# Sphinx
-_build
-rtd_docs/generated
+build/
 
 # API docs
 docs/api_docs
+# files in docs/build/ are hand maintained
+!/docs/build/
 
 # swap files
 *.swp
@@ -48,4 +47,4 @@ docs/api_docs
 .python-version
 
 # notebook test output
-out
+/out

@@ -12,32 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import numpy as np
 import pytest
 import sympy
 
-import cirq
-import cirq_google as cg
+import cirq.testing
 import cirq_google.api.v1.programs as programs
 from cirq_google.api.v1 import operations_pb2
 
 
 def assert_proto_dict_convert(gate: cirq.Gate, proto: operations_pb2.Operation, *qubits: cirq.Qid):
     assert programs.gate_to_proto(gate, qubits, delay=0) == proto
-    assert programs.xmon_op_from_proto(proto) == gate(*qubits)
+    xmon_op = programs.xmon_op_from_proto(proto)
+    assert xmon_op.qubits == qubits
+    assert xmon_op.gate == gate or np.allclose(cirq.unitary(xmon_op.gate), cirq.unitary(gate))
 
 
 def test_protobuf_round_trip():
-    device = cg.Foxtail
+    qubits = cirq.GridQubit.rect(1, 5)
     circuit = cirq.Circuit(
-        [cirq.X(q) ** 0.5 for q in device.qubits],
-        [cirq.CZ(q, q2) for q in [cirq.GridQubit(0, 0)] for q2 in device.neighbors_of(q)],
-        device=device,
+        [cirq.X(q) ** 0.5 for q in qubits], [cirq.CZ(qubits[0], q1) for q1 in qubits[1:]]
     )
 
     protos = list(programs.circuit_as_schedule_to_protos(circuit))
-    s2 = programs.circuit_from_schedule_from_protos(device, protos)
-    assert s2 == circuit
+    s2 = programs.circuit_from_schedule_from_protos(protos)
+    cirq.testing.assert_circuits_with_terminal_measurements_are_equivalent(s2, circuit)
 
 
 def make_bytes(s: str) -> bytes:
@@ -54,8 +55,7 @@ def make_bytes(s: str) -> bytes:
             pass
         elif c == '1':
             byte |= 1 << idx
-        else:
-            # coverage: ignore
+        else:  # pragma: no cover
             continue
         idx += 1
         if idx == 8:
@@ -71,32 +71,9 @@ def test_pack_results():
     measurements = [
         (
             'a',
-            np.array(
-                [
-                    [0, 0, 0],
-                    [0, 0, 1],
-                    [0, 1, 0],
-                    [0, 1, 1],
-                    [1, 0, 0],
-                    [1, 0, 1],
-                    [1, 1, 0],
-                ]
-            ),
+            np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0]]),
         ),
-        (
-            'b',
-            np.array(
-                [
-                    [0, 0],
-                    [0, 1],
-                    [1, 0],
-                    [1, 1],
-                    [0, 0],
-                    [0, 1],
-                    [1, 0],
-                ]
-            ),
-        ),
+        ('b', np.array([[0, 0], [0, 1], [1, 0], [1, 1], [0, 0], [0, 1], [1, 0]])),
     ]
     data = programs.pack_results(measurements)
     expected = make_bytes(
@@ -148,32 +125,14 @@ def test_unpack_results():
     assert results['a'].shape == (7, 3)
     assert results['a'].dtype == bool
     np.testing.assert_array_equal(
-        results['a'],
-        [
-            [0, 0, 0],
-            [0, 0, 1],
-            [0, 1, 0],
-            [0, 1, 1],
-            [1, 0, 0],
-            [1, 0, 1],
-            [1, 1, 0],
-        ],
+        results['a'], [[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0]]
     )
 
     assert 'b' in results
     assert results['b'].shape == (7, 2)
     assert results['b'].dtype == bool
     np.testing.assert_array_equal(
-        results['b'],
-        [
-            [0, 0],
-            [0, 1],
-            [1, 0],
-            [1, 1],
-            [0, 0],
-            [0, 1],
-            [1, 0],
-        ],
+        results['b'], [[0, 0], [0, 1], [1, 0], [1, 1], [0, 0], [0, 1], [1, 0]]
     )
 
 
@@ -232,7 +191,7 @@ def test_z_proto_convert():
     )
 
     assert_proto_dict_convert(gate, proto, cirq.GridQubit(2, 3))
-    gate = cirq.Z ** 0.5
+    gate = cirq.Z**0.5
     proto = operations_pb2.Operation(
         exp_z=operations_pb2.ExpZ(
             target=operations_pb2.Qubit(row=2, col=3),
@@ -253,7 +212,7 @@ def test_cz_proto_convert():
     )
     assert_proto_dict_convert(gate, proto, cirq.GridQubit(2, 3), cirq.GridQubit(3, 4))
 
-    gate = cirq.CZ ** 0.5
+    gate = cirq.CZ**0.5
     proto = operations_pb2.Operation(
         exp_11=operations_pb2.Exp11(
             target1=operations_pb2.Qubit(row=2, col=3),
@@ -285,7 +244,7 @@ def test_w_to_proto():
     )
     assert_proto_dict_convert(gate, proto, cirq.GridQubit(2, 3))
 
-    gate = cirq.X ** 0.25
+    gate = cirq.X**0.25
     proto = operations_pb2.Operation(
         exp_w=operations_pb2.ExpW(
             target=operations_pb2.Qubit(row=2, col=3),
@@ -295,7 +254,7 @@ def test_w_to_proto():
     )
     assert_proto_dict_convert(gate, proto, cirq.GridQubit(2, 3))
 
-    gate = cirq.Y ** 0.25
+    gate = cirq.Y**0.25
     proto = operations_pb2.Operation(
         exp_w=operations_pb2.ExpW(
             target=operations_pb2.Qubit(row=2, col=3),
@@ -327,9 +286,9 @@ def test_unsupported_op():
 
 def test_invalid_to_proto_dict_qubit_number():
     with pytest.raises(ValueError, match='Wrong number of qubits'):
-        _ = programs.gate_to_proto(cirq.CZ ** 0.5, (cirq.GridQubit(2, 3),), delay=0)
+        _ = programs.gate_to_proto(cirq.CZ**0.5, (cirq.GridQubit(2, 3),), delay=0)
     with pytest.raises(ValueError, match='Wrong number of qubits'):
-        programs.gate_to_proto(cirq.Z ** 0.5, (cirq.GridQubit(2, 3), cirq.GridQubit(3, 4)), delay=0)
+        programs.gate_to_proto(cirq.Z**0.5, (cirq.GridQubit(2, 3), cirq.GridQubit(3, 4)), delay=0)
     with pytest.raises(ValueError, match='Wrong number of qubits'):
         programs.gate_to_proto(
             cirq.PhasedXPowGate(exponent=0.5, phase_exponent=0),
@@ -378,10 +337,10 @@ def test_is_supported():
 
 def test_is_native_xmon_gate():
     assert programs.is_native_xmon_gate(cirq.CZ)
-    assert programs.is_native_xmon_gate(cirq.X ** 0.5)
-    assert programs.is_native_xmon_gate(cirq.Y ** 0.5)
-    assert programs.is_native_xmon_gate(cirq.Z ** 0.5)
+    assert programs.is_native_xmon_gate(cirq.X**0.5)
+    assert programs.is_native_xmon_gate(cirq.Y**0.5)
+    assert programs.is_native_xmon_gate(cirq.Z**0.5)
     assert programs.is_native_xmon_gate(cirq.PhasedXPowGate(phase_exponent=0.2) ** 0.5)
-    assert programs.is_native_xmon_gate(cirq.Z ** 1)
+    assert programs.is_native_xmon_gate(cirq.Z**1)
     assert not programs.is_native_xmon_gate(cirq.CCZ)
     assert not programs.is_native_xmon_gate(cirq.SWAP)

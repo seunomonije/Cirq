@@ -1,6 +1,6 @@
 # Copyright 2018 The Cirq Developers
 #
-# Licensed under the Apache License, Version 2.0 (the "License");l
+# Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
@@ -14,54 +14,66 @@
 
 """Quantum gates that phase with respect to product-of-pauli observables."""
 
-from typing import List, Optional, Tuple, Union, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Any, Iterator, Sequence, TYPE_CHECKING
 
 import numpy as np
+from typing_extensions import Self
 
-from cirq import protocols
+from cirq import protocols, value
 from cirq._compat import proper_repr
 from cirq._doc import document
-from cirq.ops import gate_features, eigen_gate, common_gates, pauli_gates
+from cirq.ops import (
+    clifford_gate,
+    common_gates,
+    eigen_gate,
+    gate_features,
+    pauli_gates,
+    pauli_interaction_gate,
+)
 
 if TYPE_CHECKING:
     import cirq
 
 
-class XXPowGate(
-    eigen_gate.EigenGate, gate_features.TwoQubitGate, gate_features.InterchangeableQubitsGate
-):
+@value.value_equality
+class XXPowGate(gate_features.InterchangeableQubitsGate, eigen_gate.EigenGate):
     r"""The X-parity gate, possibly raised to a power.
 
     The XX**t gate implements the following unitary:
 
-        $$
-        (X \otimes X)^t = \begin{bmatrix}
-                          c & . & . & s \\
-                          . & c & s & . \\
-                          . & s & c & . \\
-                          s & . & . & c
-                          \end{bmatrix}
-        $$
+    $$
+    (X \otimes X)^t = \begin{bmatrix}
+                      c & 0 & 0 & s \\
+                      0 & c & s & 0 \\
+                      0 & s & c & 0 \\
+                      s & 0 & 0 & c
+                      \end{bmatrix}
+    $$
 
-    where '.' means '0' and
+    where
 
-        $$
-        c = f \cos(\frac{\pi t}{2})
-        $$
+    $$
+    c = f \cos\left(\frac{\pi t}{2}\right)
+    $$
 
-        $$
-        s = -i f \sin(\frac{\pi t}{2})
-        $$
+    $$
+    s = -i f \sin\left(\frac{\pi t}{2}\right)
+    $$
 
-        $$
-        f = e^{\frac{i \pi t}{2}}.
-        $$
+    $$
+    f = e^{\frac{i \pi t}{2}}.
+    $$
 
-    See also: `cirq.ion.ion_gates.MSGate` (the Mølmer–Sørensen gate), which is
+    See also: `cirq.ops.MSGate` (the Mølmer–Sørensen gate), which is
     implemented via this class.
     """
 
-    def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
+    def _num_qubits_(self) -> int:
+        return 2
+
+    def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
         return [
             (
                 0.0,
@@ -78,49 +90,45 @@ class XXPowGate(
     def _eigen_shifts(self):
         return [0, 1]
 
-    def _trace_distance_bound_(self) -> Optional[float]:
+    def _trace_distance_bound_(self) -> float | None:
         if self._is_parameterized_():
             return None
         return abs(np.sin(self._exponent * 0.5 * np.pi))
 
     def _decompose_into_clifford_with_qubits_(self, qubits):
-        from cirq.ops.clifford_gate import SingleQubitCliffordGate
-        from cirq.ops.pauli_interaction_gate import PauliInteractionGate
-
         if self.exponent % 2 == 0:
             return []
         if self.exponent % 2 == 0.5:
             return [
-                PauliInteractionGate(pauli_gates.X, False, pauli_gates.X, False).on(*qubits),
-                SingleQubitCliffordGate.X_sqrt.on_each(*qubits),
+                pauli_interaction_gate.PauliInteractionGate(
+                    pauli_gates.X, False, pauli_gates.X, False
+                ).on(*qubits),
+                clifford_gate.SingleQubitCliffordGate.X_sqrt.on_each(*qubits),
             ]
         if self.exponent % 2 == 1:
-            return [SingleQubitCliffordGate.X.on_each(*qubits)]
+            return [clifford_gate.SingleQubitCliffordGate.X.on_each(*qubits)]
         if self.exponent % 2 == 1.5:
             return [
-                PauliInteractionGate(pauli_gates.X, False, pauli_gates.X, False).on(*qubits),
-                SingleQubitCliffordGate.X_nsqrt.on_each(*qubits),
+                pauli_interaction_gate.PauliInteractionGate(
+                    pauli_gates.X, False, pauli_gates.X, False
+                ).on(*qubits),
+                clifford_gate.SingleQubitCliffordGate.X_nsqrt.on_each(*qubits),
             ]
         return NotImplemented
 
+    def _has_stabilizer_effect_(self) -> bool:
+        return self.exponent % 2 in (0, 0.5, 1, 1.5)
+
+    def _decompose_(self, qubits: tuple[cirq.Qid, ...]) -> Iterator[cirq.OP_TREE]:
+        yield common_gates.YPowGate(exponent=-0.5).on_each(*qubits)
+        yield ZZPowGate(exponent=self.exponent, global_shift=self.global_shift)(*qubits)
+        yield common_gates.YPowGate(exponent=0.5).on_each(*qubits)
+
     def _circuit_diagram_info_(
-        self, args: 'cirq.CircuitDiagramInfoArgs'
-    ) -> Union[str, 'protocols.CircuitDiagramInfo']:
+        self, args: cirq.CircuitDiagramInfoArgs
+    ) -> str | protocols.CircuitDiagramInfo:
         return protocols.CircuitDiagramInfo(
             wire_symbols=('XX', 'XX'), exponent=self._diagram_exponent(args)
-        )
-
-    def _quil_(
-        self, qubits: Tuple['cirq.Qid', ...], formatter: 'cirq.QuilFormatter'
-    ) -> Optional[str]:
-        if self._exponent == 1:
-            return formatter.format('X {0}\nX {1}\n', qubits[0], qubits[1])
-        return formatter.format(
-            'RX({0}) {1}\nRX({2}) {3}\n',
-            self._exponent * np.pi,
-            qubits[0],
-            self._exponent * np.pi,
-            qubits[1],
         )
 
     def __str__(self) -> str:
@@ -139,38 +147,40 @@ class XXPowGate(
         )
 
 
-class YYPowGate(
-    eigen_gate.EigenGate, gate_features.TwoQubitGate, gate_features.InterchangeableQubitsGate
-):
+@value.value_equality
+class YYPowGate(gate_features.InterchangeableQubitsGate, eigen_gate.EigenGate):
     r"""The Y-parity gate, possibly raised to a power.
 
     The YY**t gate implements the following unitary:
 
-        $$
-        (Y \otimes Y)^t = \begin{bmatrix}
-                          c & . & . & -s \\
-                          . & c & s & . \\
-                          . & s & c & . \\
-                          -s & . & . & c \\
-                          \end{bmatrix}
-        $$
+    $$
+    (Y \otimes Y)^t = \begin{bmatrix}
+                      c & 0 & 0 & -s \\
+                      0 & c & s & 0 \\
+                      0 & s & c & 0 \\
+                      -s & 0 & 0 & c \\
+                      \end{bmatrix}
+    $$
 
-    where '.' means '0' and
+    where
 
-        $$
-        c = f \cos(\frac{\pi t}{2})
-        $$
+    $$
+    c = f \cos\left(\frac{\pi t}{2}\right)
+    $$
 
-        $$
-        s = -i f \sin(\frac{\pi t}{2})
-        $$
+    $$
+    s = -i f \sin\left(\frac{\pi t}{2}\right)
+    $$
 
-        $$
-        f = e^{\frac{i \pi t}{2}}.
-        $$
+    $$
+    f = e^{\frac{i \pi t}{2}}.
+    $$
     """
 
-    def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
+    def _num_qubits_(self) -> int:
+        return 2
+
+    def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
         return [
             (
                 0.0,
@@ -189,50 +199,43 @@ class YYPowGate(
     def _eigen_shifts(self):
         return [0, 1]
 
-    def _trace_distance_bound_(self) -> Optional[float]:
+    def _trace_distance_bound_(self) -> float | None:
         if self._is_parameterized_():
             return None
         return abs(np.sin(self._exponent * 0.5 * np.pi))
 
     def _decompose_into_clifford_with_qubits_(self, qubits):
-        from cirq.ops.clifford_gate import SingleQubitCliffordGate
-        from cirq.ops.pauli_interaction_gate import PauliInteractionGate
-
         if self.exponent % 2 == 0:
             return []
         if self.exponent % 2 == 0.5:
             return [
-                PauliInteractionGate(pauli_gates.Y, False, pauli_gates.Y, False).on(*qubits),
-                SingleQubitCliffordGate.Y_sqrt.on_each(*qubits),
+                pauli_interaction_gate.PauliInteractionGate(
+                    pauli_gates.Y, False, pauli_gates.Y, False
+                ).on(*qubits),
+                clifford_gate.SingleQubitCliffordGate.Y_sqrt.on_each(*qubits),
             ]
         if self.exponent % 2 == 1:
-            return [SingleQubitCliffordGate.Y.on_each(*qubits)]
+            return [clifford_gate.SingleQubitCliffordGate.Y.on_each(*qubits)]
         if self.exponent % 2 == 1.5:
             return [
-                PauliInteractionGate(pauli_gates.Y, False, pauli_gates.Y, False).on(*qubits),
-                SingleQubitCliffordGate.Y_nsqrt.on_each(*qubits),
+                pauli_interaction_gate.PauliInteractionGate(
+                    pauli_gates.Y, False, pauli_gates.Y, False
+                ).on(*qubits),
+                clifford_gate.SingleQubitCliffordGate.Y_nsqrt.on_each(*qubits),
             ]
         return NotImplemented
 
-    def _circuit_diagram_info_(
-        self, args: 'cirq.CircuitDiagramInfoArgs'
-    ) -> 'cirq.CircuitDiagramInfo':
+    def _has_stabilizer_effect_(self) -> bool:
+        return self.exponent % 2 in (0, 0.5, 1, 1.5)
+
+    def _decompose_(self, qubits: tuple[cirq.Qid, ...]) -> Iterator[cirq.OP_TREE]:
+        yield common_gates.XPowGate(exponent=0.5).on_each(*qubits)
+        yield ZZPowGate(exponent=self.exponent, global_shift=self.global_shift)(*qubits)
+        yield common_gates.XPowGate(exponent=-0.5).on_each(*qubits)
+
+    def _circuit_diagram_info_(self, args: cirq.CircuitDiagramInfoArgs) -> cirq.CircuitDiagramInfo:
         return protocols.CircuitDiagramInfo(
             wire_symbols=('YY', 'YY'), exponent=self._diagram_exponent(args)
-        )
-
-    def _quil_(
-        self, qubits: Tuple['cirq.Qid', ...], formatter: 'cirq.QuilFormatter'
-    ) -> Optional[str]:
-        if self._exponent == 1:
-            return formatter.format('Y {0}\nY {1}\n', qubits[0], qubits[1])
-
-        return formatter.format(
-            'RY({0}) {1}\nRY({2}) {3}\n',
-            self._exponent * np.pi,
-            qubits[0],
-            self._exponent * np.pi,
-            qubits[1],
         )
 
     def __str__(self) -> str:
@@ -251,24 +254,24 @@ class YYPowGate(
         )
 
 
-class ZZPowGate(
-    eigen_gate.EigenGate, gate_features.TwoQubitGate, gate_features.InterchangeableQubitsGate
-):
+@value.value_equality
+class ZZPowGate(gate_features.InterchangeableQubitsGate, eigen_gate.EigenGate):
     r"""The Z-parity gate, possibly raised to a power.
 
     The ZZ**t gate implements the following unitary:
 
-        $$
-        (Z \otimes Z)^t = \begin{bmatrix}
-                          1 & . & . & . \\
-                          . & w & . & . \\
-                          . & . & w & . \\
-                          . & . & . & 1
-                          \end{bmatrix}
-        $$
-
-    where $w = e^{i \pi t}$ and '.' means '0'.
+    $$
+    (Z \otimes Z)^t = \begin{bmatrix}
+                      1 & & & \\
+                      & e^{i \pi t} & & \\
+                      & & e^{i \pi t} & \\
+                      & & & 1
+                      \end{bmatrix}
+    $$
     """
+
+    def _num_qubits_(self) -> int:
+        return 2
 
     def _decompose_(self, qubits):
         yield common_gates.ZPowGate(exponent=self.exponent)(qubits[0])
@@ -277,28 +280,51 @@ class ZZPowGate(
             exponent=-2 * self.exponent, global_shift=-self.global_shift / 2
         )(qubits[0], qubits[1])
 
-    def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
-        return [
-            (0, np.diag([1, 0, 0, 1])),
-            (1, np.diag([0, 1, 1, 0])),
-        ]
+    def _decompose_into_clifford_with_qubits_(
+        self, qubits: Sequence[cirq.Qid]
+    ) -> Sequence[cirq.Operation | Sequence[cirq.Operation]]:
+        if not self._has_stabilizer_effect_():
+            return NotImplemented
+        if self.exponent % 2 == 0:
+            return []
+        if self.exponent % 2 == 1:
+            return clifford_gate.SingleQubitCliffordGate.Z.on_each(*qubits)
+
+        if self.exponent % 2 == 0.5:
+            return [
+                pauli_interaction_gate.PauliInteractionGate(
+                    pauli_gates.Z, False, pauli_gates.Z, False
+                ).on(*qubits),
+                clifford_gate.SingleQubitCliffordGate.Z_sqrt.on_each(*qubits),
+            ]
+        else:
+            return [
+                pauli_interaction_gate.PauliInteractionGate(
+                    pauli_gates.Z, False, pauli_gates.Z, False
+                ).on(*qubits),
+                clifford_gate.SingleQubitCliffordGate.Z_nsqrt.on_each(*qubits),
+            ]
+
+    def _has_stabilizer_effect_(self) -> bool:
+        return self.exponent % 2 in (0, 0.5, 1, 1.5)
+
+    def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
+        return [(0, np.diag([1, 0, 0, 1])), (1, np.diag([0, 1, 1, 0]))]
 
     def _eigen_shifts(self):
         return [0, 1]
 
-    def _trace_distance_bound_(self) -> Optional[float]:
+    def _trace_distance_bound_(self) -> float | None:
         if self._is_parameterized_():
             return None
         return abs(np.sin(self._exponent * 0.5 * np.pi))
 
-    def _circuit_diagram_info_(
-        self, args: 'cirq.CircuitDiagramInfoArgs'
-    ) -> 'cirq.CircuitDiagramInfo':
+    def _circuit_diagram_info_(self, args: cirq.CircuitDiagramInfoArgs) -> cirq.CircuitDiagramInfo:
         return protocols.CircuitDiagramInfo(
             wire_symbols=('ZZ', 'ZZ'), exponent=self._diagram_exponent(args)
         )
 
-    def _apply_unitary_(self, args: 'protocols.ApplyUnitaryArgs') -> Optional[np.ndarray]:
+    def _apply_unitary_(self, args: protocols.ApplyUnitaryArgs) -> np.ndarray | None:
         if protocols.is_parameterized(self):
             return None
 
@@ -314,19 +340,8 @@ class ZZPowGate(
 
         return args.target_tensor
 
-    def _quil_(
-        self, qubits: Tuple['cirq.Qid', ...], formatter: 'cirq.QuilFormatter'
-    ) -> Optional[str]:
-        if self._exponent == 1:
-            return formatter.format('Z {0}\nZ {1}\n', qubits[0], qubits[1])
-
-        return formatter.format(
-            'RZ({0}) {1}\nRZ({2}) {3}\n',
-            self._exponent * np.pi,
-            qubits[0],
-            self._exponent * np.pi,
-            qubits[1],
-        )
+    def _phase_by_(self, phase_turns: float, qubit_index: int) -> ZZPowGate:
+        return self
 
     def __str__(self) -> str:
         if self._exponent == 1:
@@ -344,27 +359,95 @@ class ZZPowGate(
         )
 
 
+class MSGate(XXPowGate):
+    """The Mølmer–Sørensen gate, a native two-qubit operation in ion traps.
+
+    A rotation around the XX axis in the two-qubit bloch sphere.
+
+    The gate implements the following unitary:
+
+        exp(-i t XX) = [ cos(t)   0        0       -isin(t)]
+                       [ 0        cos(t)  -isin(t)  0      ]
+                       [ 0       -isin(t)  cos(t)   0      ]
+                       [-isin(t)  0        0        cos(t) ]
+    """
+
+    def __init__(self, *, rads: float):  # Forces keyword args.
+        XXPowGate.__init__(self, exponent=rads * 2 / np.pi, global_shift=-0.5)
+        self.rads = rads
+
+    def _with_exponent(self, exponent: value.TParamVal) -> Self:
+        return type(self)(rads=exponent * np.pi / 2)
+
+    def _circuit_diagram_info_(
+        self, args: cirq.CircuitDiagramInfoArgs
+    ) -> str | protocols.CircuitDiagramInfo:
+        angle_str = self._format_exponent_as_angle(args, order=4)
+        symbol = f'MS({angle_str})'
+        return protocols.CircuitDiagramInfo(wire_symbols=(symbol, symbol))
+
+    def __str__(self) -> str:
+        if self._exponent == 1:
+            return 'MS(π/2)'
+        return f'MS({self._exponent!r}π/2)'
+
+    def __repr__(self) -> str:
+        if self._exponent == 1:
+            return 'cirq.ms(np.pi/2)'
+        return f'cirq.ms({self._exponent!r}*np.pi/2)'
+
+    # the default namespace is already occupied by cirq_ionq.MSGate
+    @classmethod
+    def _json_namespace_(cls) -> str:
+        return 'cirq'
+
+    def _json_dict_(self) -> dict[str, Any]:
+        return protocols.obj_to_dict_helper(self, ["rads"])
+
+    @classmethod
+    def _from_json_dict_(cls, rads: float, **kwargs: Any) -> MSGate:
+        return cls(rads=rads)
+
+
+def ms(rads: float) -> MSGate:
+    """A helper to construct the `cirq.MSGate` for the given angle specified in radians.
+
+    Args:
+        rads: The rotation angle in radians.
+
+    Returns:
+        Mølmer–Sørensen gate rotating by the desired amount.
+    """
+    return MSGate(rads=rads)
+
+
 XX = XXPowGate()
 document(
     XX,
-    """The tensor product of two X gates.
+    r"""The tensor product of two X gates.
 
-    The `exponent=1` instance of `cirq.XXPowGate`.
+    Useful for creating `cirq.XXPowGate`s via `cirq.XX**t`.
+
+    This is the `exponent=1` instance of `cirq.XXPowGate`.
     """,
 )
 YY = YYPowGate()
 document(
     YY,
-    """The tensor product of two Y gates.
+    r"""The tensor product of two Y gates.
 
-    The `exponent=1` instance of `cirq.YYPowGate`.
+    Useful for creating `cirq.YYPowGate`s via `cirq.YY**t`.
+
+    This is the `exponent=1` instance of `cirq.YYPowGate`.
     """,
 )
 ZZ = ZZPowGate()
 document(
     ZZ,
-    """The tensor product of two Z gates.
+    r"""The tensor product of two Z gates.
 
-    The `exponent=1` instance of `cirq.ZZPowGate`.
+    Useful for creating `cirq.ZZPowGate`s via `cirq.ZZ**t`.
+
+    This is the `exponent=1` instance of `cirq.ZZPowGate`.
     """,
 )

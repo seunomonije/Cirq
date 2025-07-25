@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Tuple
-import re
+from __future__ import annotations
 
 import numpy as np
 import pytest
@@ -24,7 +23,7 @@ from cirq import value
 from cirq.testing import assert_has_consistent_trace_distance_bound
 
 
-class CExpZinGate(cirq.EigenGate, cirq.TwoQubitGate):
+class CExpZinGate(cirq.EigenGate, cirq.testing.TwoQubitGate):
     """Two-qubit gate for the following matrix:
     [1  0  0  0]
     [0  1  0  0]
@@ -42,7 +41,7 @@ class CExpZinGate(cirq.EigenGate, cirq.TwoQubitGate):
     def _with_exponent(self, exponent):
         return CExpZinGate(exponent)
 
-    def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
+    def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
         return [
             (0, np.diag([1, 1, 0, 0])),
             (0.5, np.diag([0, 0, 1, 0])),
@@ -50,19 +49,16 @@ class CExpZinGate(cirq.EigenGate, cirq.TwoQubitGate):
         ]
 
 
-class ZGateDef(cirq.EigenGate, cirq.TwoQubitGate):
+class ZGateDef(cirq.EigenGate, cirq.testing.SingleQubitGate):
     @property
     def exponent(self):
         return self._exponent
 
-    def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
-        return [
-            (0, np.diag([1, 0])),
-            (1, np.diag([0, 1])),
-        ]
+    def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
+        return [(0, np.diag([1, 0])), (1, np.diag([0, 1]))]
 
 
-def test_approximate_common_period():
+def test_approximate_common_period() -> None:
     from cirq.ops.eigen_gate import _approximate_common_period as f
 
     assert f([]) is None
@@ -75,13 +71,19 @@ def test_approximate_common_period():
     assert f([2.5]) == 2.5
     assert f([1.5, 2]) == 6
     assert f([2, 3]) == 6
-    assert abs(f([1 / 3, 2 / 3]) - 2 / 3) < 1e-8
-    assert abs(f([2 / 5, 3 / 5]) - 6 / 5) < 1e-8
+    f_x = f([1 / 3, 2 / 3])
+    assert f_x is not None
+    assert abs(f_x - 2 / 3) < 1e-8
+    f_x = f([2 / 5, 3 / 5])
+    assert f_x is not None
+    assert abs(f_x - 6 / 5) < 1e-8
     assert f([0.5, -0.5]) == 0.5
-    np.testing.assert_allclose(f([np.e]), np.e, atol=1e-8)
+    f_x = f([np.e])
+    assert f_x is not None
+    np.testing.assert_allclose(f_x, np.e, atol=1e-8)
 
 
-def test_init():
+def test_init() -> None:
     assert CExpZinGate(1).exponent == 1
     assert CExpZinGate(0.5).exponent == 0.5
     assert CExpZinGate(4.5).exponent == 4.5
@@ -95,12 +97,11 @@ def test_init():
     assert ZGateDef(exponent=0.5 + 0j).exponent == 0.5
 
 
-def test_eq():
+def test_eq() -> None:
     eq = cirq.testing.EqualsTester()
     eq.make_equality_group(lambda: CExpZinGate(quarter_turns=0.1))
     eq.add_equality_group(CExpZinGate(0), CExpZinGate(4), CExpZinGate(-4))
 
-    # Equates by canonicalized period.
     eq.add_equality_group(CExpZinGate(1.5), CExpZinGate(41.5))
     eq.add_equality_group(CExpZinGate(3.5), CExpZinGate(-0.5))
 
@@ -112,8 +113,66 @@ def test_eq():
     eq.add_equality_group(ZGateDef(exponent=0.5, global_shift=0.5))
     eq.add_equality_group(ZGateDef(exponent=1.0, global_shift=0.5))
 
+    # All variants of (0,0) == (0*a,0*a) == (0, 2) == (2, 2)
+    a, b = sympy.symbols('a, b')
+    eq.add_equality_group(
+        WeightedZPowGate(0),
+        WeightedZPowGate(0) ** 1.1,
+        WeightedZPowGate(0) ** a,
+        (WeightedZPowGate(0) ** a) ** 1.2,
+        WeightedZPowGate(0) ** (a + 1.3),
+        WeightedZPowGate(0) ** b,
+        WeightedZPowGate(1) ** 2,
+        WeightedZPowGate(0, global_shift=1) ** 2,
+        WeightedZPowGate(1, global_shift=1) ** 2,
+        WeightedZPowGate(2),
+        WeightedZPowGate(0, global_shift=2),
+        WeightedZPowGate(2, global_shift=2),
+    )
+    # WeightedZPowGate(2) is identity, but non-integer exponent would make it different, similar to
+    # how we treat (X**2)**0.5==X. So these are in their own equality group. (0, 2*a)
+    eq.add_equality_group(
+        WeightedZPowGate(2) ** a,
+        (WeightedZPowGate(1) ** 2) ** a,
+        (WeightedZPowGate(1) ** a) ** 2,
+        WeightedZPowGate(1) ** (a * 2),
+        WeightedZPowGate(1) ** (a + a),
+    )
+    # Similarly, these are identity without the exponent, but global_shift affects both phases
+    # instead of just the one, so will have a different effect from the above depending on the
+    # exponent. (2*a, 0)
+    eq.add_equality_group(
+        WeightedZPowGate(0, global_shift=2) ** a,
+        (WeightedZPowGate(0, global_shift=1) ** 2) ** a,
+        (WeightedZPowGate(0, global_shift=1) ** a) ** 2,
+        WeightedZPowGate(0, global_shift=1) ** (a * 2),
+        WeightedZPowGate(0, global_shift=1) ** (a + a),
+    )
+    # Symbolic exponents that cancel (0, 1) == (0, a/a)
+    eq.add_equality_group(
+        WeightedZPowGate(1),
+        WeightedZPowGate(a) ** (1 / a),
+        WeightedZPowGate(b) ** (1 / b),
+        WeightedZPowGate(1 / a) ** a,
+        WeightedZPowGate(1 / b) ** b,
+    )
+    # Symbol in one phase and constant off by period in another (0, a) == (2, a)
+    eq.add_equality_group(
+        WeightedZPowGate(a),
+        WeightedZPowGate(a - 2, global_shift=2),
+        WeightedZPowGate(1 - 2 / a, global_shift=2 / a) ** a,
+    )
+    # Different symbol, different equality group (0, b)
+    eq.add_equality_group(WeightedZPowGate(b))
+    # Various number types
+    eq.add_equality_group(
+        WeightedZPowGate(np.int64(3), global_shift=sympy.Number(5)) ** 7.0,
+        WeightedZPowGate(sympy.Number(3), global_shift=5.0) ** np.int64(7),
+        WeightedZPowGate(3.0, global_shift=np.int64(5)) ** sympy.Number(7),
+    )
 
-def test_approx_eq():
+
+def test_approx_eq() -> None:
     assert cirq.approx_eq(CExpZinGate(1.5), CExpZinGate(1.5), atol=0.1)
     assert cirq.approx_eq(CExpZinGate(1.5), CExpZinGate(1.7), atol=0.3)
     assert not cirq.approx_eq(CExpZinGate(1.5), CExpZinGate(1.7), atol=0.1)
@@ -121,8 +180,7 @@ def test_approx_eq():
     assert cirq.approx_eq(ZGateDef(exponent=1.5), ZGateDef(exponent=1.5), atol=0.1)
     assert not cirq.approx_eq(CExpZinGate(1.5), ZGateDef(exponent=1.5), atol=0.1)
     with pytest.raises(
-        TypeError,
-        match=re.escape("unsupported operand type(s) for -: 'Symbol' and 'PeriodicValue'"),
+        TypeError, match="unsupported operand type\\(s\\) for -: '.*' and 'PeriodicValue'"
     ):
         cirq.approx_eq(ZGateDef(exponent=1.5), ZGateDef(exponent=sympy.Symbol('a')), atol=0.1)
     assert cirq.approx_eq(CExpZinGate(sympy.Symbol('a')), CExpZinGate(sympy.Symbol('a')), atol=0.1)
@@ -136,7 +194,7 @@ def test_approx_eq():
         )
 
 
-def test_approx_eq_periodic():
+def test_approx_eq_periodic() -> None:
     assert cirq.approx_eq(CExpZinGate(1.5), CExpZinGate(5.5), atol=1e-9)
     assert cirq.approx_eq(CExpZinGate(1.5), CExpZinGate(9.5), atol=1e-9)
     assert cirq.approx_eq(CExpZinGate(-2.5), CExpZinGate(1.5), atol=1e-9)
@@ -147,8 +205,8 @@ def test_approx_eq_periodic():
     assert cirq.approx_eq(CExpZinGate(0), CExpZinGate(4 - 1e-10), atol=1e-9)
 
 
-def test_period():
-    class Components(cirq.EigenGate, cirq.TwoQubitGate):
+def test_period() -> None:
+    class Components(cirq.EigenGate, cirq.testing.TwoQubitGate):
         def __init__(self, a, b, c, d):
             super().__init__()
             self.a = a
@@ -156,7 +214,7 @@ def test_period():
             self.c = c
             self.d = d
 
-        def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
+        def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
             return [
                 (self.a, np.diag([1, 0, 0, 0])),
                 (self.b, np.diag([0, 1, 0, 0])),
@@ -172,14 +230,16 @@ def test_period():
     assert Components(1 / 3, 1 / 2, 1 / 5, 0)._period() == 60
     assert Components(1 / 6, 1 / 2, 1 / 5, 0)._period() == 60
     assert Components(np.e, np.pi, 0, 0)._period() is None
-    np.testing.assert_allclose(Components(np.e, np.e, 0, 0)._period(), 2 / np.e)
+    period = Components(np.e, np.e, 0, 0)._period()
+    assert period is not None
+    np.testing.assert_allclose(period, 2 / np.e)
     assert Components(-0.5, 0, 0, 0)._period() == 4
     assert Components(-0.5, 0.5, 0, 0)._period() == 4
     assert Components(-0.5, 0.5, 0.5, 0.5)._period() == 4
     assert Components(1, 1, -1, 1)._period() == 2
 
 
-def test_pow():
+def test_pow() -> None:
     assert CExpZinGate(0.25) ** 2 == CExpZinGate(0.5)
     assert CExpZinGate(0.25) ** -1 == CExpZinGate(-0.25)
     assert CExpZinGate(0.25) ** 0 == CExpZinGate(0)
@@ -188,37 +248,42 @@ def test_pow():
     assert ZGateDef(exponent=0.25, global_shift=0.5) ** 2 == ZGateDef(
         exponent=0.5, global_shift=0.5
     )
-    with pytest.raises(ValueError, match="real"):
+    with pytest.raises(ValueError, match="Gate exponent must be real."):
         assert ZGateDef(exponent=0.5) ** 0.5j
     assert ZGateDef(exponent=0.5) ** (1 + 0j) == ZGateDef(exponent=0.5)
 
+    with pytest.raises(TypeError, match="Gate exponent must be a number or sympy expression."):
+        assert ZGateDef(exponent=0.5) ** "text"
 
-def test_inverse():
+    with pytest.raises(TypeError, match="Gate exponent must be a number or sympy expression."):
+        assert ZGateDef(exponent="text")
+
+    with pytest.raises(TypeError, match="Gate exponent must be a number or sympy expression."):
+        assert ZGateDef(exponent=sympy.Symbol('a')) ** "text"
+
+
+def test_inverse() -> None:
     assert cirq.inverse(CExpZinGate(0.25)) == CExpZinGate(-0.25)
     assert cirq.inverse(CExpZinGate(sympy.Symbol('a'))) == CExpZinGate(-sympy.Symbol('a'))
 
 
-def test_trace_distance_bound():
+def test_trace_distance_bound() -> None:
     assert cirq.trace_distance_bound(CExpZinGate(0.001)) < 0.01
     assert cirq.trace_distance_bound(CExpZinGate(sympy.Symbol('a'))) == 1
     assert cirq.approx_eq(cirq.trace_distance_bound(CExpZinGate(2)), 1)
 
     class E(cirq.EigenGate):
-        def _num_qubits_(self):
-            # coverage: ignore
+        def _num_qubits_(self):  # pragma: no cover
             return 1
 
-        def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
-            return [
-                (0, np.array([[1, 0], [0, 0]])),
-                (12, np.array([[0, 0], [0, 1]])),
-            ]
+        def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
+            return [(0, np.array([[1, 0], [0, 0]])), (12, np.array([[0, 0], [0, 1]]))]
 
     for numerator in range(13):
         assert_has_consistent_trace_distance_bound(E() ** (numerator / 12))
 
 
-def test_extrapolate():
+def test_extrapolate() -> None:
     h = CExpZinGate(2)
     assert cirq.pow(h, 1.5) is not None
     assert cirq.inverse(h, None) is not None
@@ -232,8 +297,7 @@ def test_extrapolate():
     assert cirq.inverse(s) == CExpZinGate(-sympy.Symbol('a'))
 
 
-def test_matrix():
-
+def test_matrix() -> None:
     for n in [1, 2, 3, 4, 0.0001, 3.9999]:
         assert cirq.has_unitary(CExpZinGate(n))
 
@@ -279,11 +343,11 @@ def test_matrix():
     )
 
 
-def test_matrix_is_exact_for_quarter_turn():
+def test_matrix_is_exact_for_quarter_turn() -> None:
     np.testing.assert_equal(cirq.unitary(CExpZinGate(1)), np.diag([1, 1, 1j, -1j]))
 
 
-def test_is_parameterized():
+def test_is_parameterized() -> None:
     assert not cirq.is_parameterized(CExpZinGate(0))
     assert not cirq.is_parameterized(CExpZinGate(1))
     assert not cirq.is_parameterized(CExpZinGate(3))
@@ -291,17 +355,20 @@ def test_is_parameterized():
 
 
 @pytest.mark.parametrize('resolve_fn', [cirq.resolve_parameters, cirq.resolve_parameters_once])
-def test_resolve_parameters(resolve_fn):
+def test_resolve_parameters(resolve_fn) -> None:
     assert resolve_fn(
         CExpZinGate(sympy.Symbol('a')), cirq.ParamResolver({'a': 0.5})
     ) == CExpZinGate(0.5)
 
     assert resolve_fn(CExpZinGate(0.25), cirq.ParamResolver({})) == CExpZinGate(0.25)
 
+    with pytest.raises(ValueError, match='Complex exponent'):
+        resolve_fn(CExpZinGate(sympy.Symbol('a')), cirq.ParamResolver({'a': 0.5j}))
 
-def test_diagram_period():
-    class ShiftyGate(cirq.EigenGate, cirq.SingleQubitGate):
-        def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
+
+def test_diagram_period() -> None:
+    class ShiftyGate(cirq.EigenGate, cirq.testing.SingleQubitGate):
+        def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
             raise NotImplementedError()
 
         def __init__(self, e, *shifts):
@@ -333,21 +400,13 @@ def test_diagram_period():
     assert ShiftyGate(505.2, 0, np.pi, np.e)._diagram_exponent(args) == 505.2
 
 
-class WeightedZPowGate(cirq.EigenGate, cirq.SingleQubitGate):
+class WeightedZPowGate(cirq.EigenGate, cirq.testing.SingleQubitGate):
     def __init__(self, weight, **kwargs):
         self.weight = weight
         super().__init__(**kwargs)
 
-    def _value_equality_values_(self):
-        return self.weight, self._canonical_exponent, self._global_shift
-
-    _value_equality_approximate_values_ = _value_equality_values_
-
-    def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
-        return [
-            (0, np.diag([1, 0])),
-            (self.weight, np.diag([0, 1])),
-        ]
+    def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
+        return [(0, np.diag([1, 0])), (self.weight, np.diag([0, 1]))]
 
     def _with_exponent(self, exponent):
         return type(self)(self.weight, exponent=exponent, global_shift=self._global_shift)
@@ -356,20 +415,26 @@ class WeightedZPowGate(cirq.EigenGate, cirq.SingleQubitGate):
 @pytest.mark.parametrize(
     'gate1,gate2,eq_up_to_global_phase',
     [
-        (cirq.rz(0.3 * np.pi), cirq.Z ** 0.3, True),
+        (cirq.rz(0.3 * np.pi), cirq.Z**0.3, True),
         (cirq.Z, cirq.Gate, False),
-        (cirq.rz(0.3), cirq.Z ** 0.3, False),
+        (cirq.rz(0.3), cirq.Z**0.3, False),
         (cirq.ZZPowGate(global_shift=0.5), cirq.ZZ, True),
         (cirq.ZPowGate(global_shift=0.5) ** sympy.Symbol('e'), cirq.Z, False),
         (cirq.Z ** sympy.Symbol('e'), cirq.Z ** sympy.Symbol('f'), False),
-        (cirq.ZZ ** 1.9, cirq.ZZ ** -0.1, True),
+        (cirq.ZZ**1.9, cirq.ZZ**-0.1, True),
         (WeightedZPowGate(0), WeightedZPowGate(0.1), False),
         (WeightedZPowGate(0.3), WeightedZPowGate(0.3, global_shift=0.1), True),
         (cirq.X, cirq.Z, False),
         (cirq.X, cirq.Y, False),
         (cirq.rz(np.pi), cirq.Z, True),
-        (cirq.X ** 0.3, cirq.Z ** 0.3, False),
+        (cirq.X**0.3, cirq.Z**0.3, False),
+        (cirq.Z, cirq.Z ** (1 - 1e-10), True),
+        (cirq.Z, cirq.Z ** (1 + 1e-10), True),
+        (cirq.Z, cirq.Z ** (3 - 1e-10), True),
+        (cirq.Z, cirq.Z ** (3 + 1e-10), True),
+        (cirq.Z**2, cirq.Z ** (4 - 1e-10), True),
+        (cirq.Z**2, cirq.Z ** (4 + 1e-10), True),
     ],
 )
-def test_equal_up_to_global_phase(gate1, gate2, eq_up_to_global_phase):
+def test_equal_up_to_global_phase(gate1, gate2, eq_up_to_global_phase) -> None:
     assert cirq.equal_up_to_global_phase(gate1, gate2) == eq_up_to_global_phase

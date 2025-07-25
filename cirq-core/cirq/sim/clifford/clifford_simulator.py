@@ -11,11 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """An efficient simulator for Clifford circuits.
 
 Allowed operations include:
-	- X,Y,Z,H,S,CNOT,CZ
-	- measurements in the computational basis
+    - X,Y,Z,H,S,CNOT,CZ
+    - measurements in the computational basis
 
 The quantum state is specified in two forms:
     1. In terms of stabilizer generators. These are a set of n Pauli operators
@@ -29,48 +30,53 @@ The quantum state is specified in two forms:
     to state vector amplitudes.
 """
 
-from typing import Any, Dict, List, Sequence, Union
+from __future__ import annotations
+
+from typing import Any, Sequence
 
 import numpy as np
 
 import cirq
-from cirq import study, protocols, value
+from cirq import protocols, value
 from cirq.protocols import act_on
-from cirq.sim import clifford, simulator, simulator_base
+from cirq.sim import clifford, simulator_base
 
 
 class CliffordSimulator(
     simulator_base.SimulatorBase[
-        'CliffordSimulatorStepResult',
-        'CliffordTrialResult',
-        'CliffordState',
-        clifford.ActOnStabilizerCHFormArgs,
-    ],
+        'cirq.CliffordSimulatorStepResult',
+        'cirq.CliffordTrialResult',
+        'cirq.StabilizerChFormSimulationState',
+    ]
 ):
     """An efficient simulator for Clifford circuits."""
 
-    def __init__(self, seed: 'cirq.RANDOM_STATE_OR_SEED_LIKE' = None):
+    def __init__(
+        self, seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None, split_untangled_states: bool = False
+    ):
         """Creates instance of `CliffordSimulator`.
 
         Args:
             seed: The random seed to use for this simulator.
+            split_untangled_states: Optimizes simulation by running separable
+                states independently and merging those states at the end.
         """
         self.init = True
-        super().__init__(seed=seed)
+        super().__init__(seed=seed, split_untangled_states=split_untangled_states)
 
     @staticmethod
-    def is_supported_operation(op: 'cirq.Operation') -> bool:
+    def is_supported_operation(op: cirq.Operation) -> bool:
         """Checks whether given operation can be simulated by this simulator."""
         # TODO: support more general Pauli measurements
         return protocols.has_stabilizer_effect(op)
 
-    def _create_partial_act_on_args(
+    def _create_partial_simulation_state(
         self,
-        initial_state: Union[int, clifford.ActOnStabilizerCHFormArgs],
-        qubits: Sequence['cirq.Qid'],
-        logs: Dict[str, Any],
-    ) -> clifford.ActOnStabilizerCHFormArgs:
-        """Creates the ActOnStabilizerChFormArgs for a circuit.
+        initial_state: int | cirq.StabilizerChFormSimulationState,
+        qubits: Sequence[cirq.Qid],
+        classical_data: cirq.ClassicalDataStore,
+    ) -> cirq.StabilizerChFormSimulationState:
+        """Creates the StabilizerChFormSimulationState for a circuit.
 
         Args:
             initial_state: The initial state for the simulation in the
@@ -78,74 +84,81 @@ class CliffordSimulator(
             qubits: Determines the canonical ordering of the qubits. This
                 is often used in specifying the initial state, i.e. the
                 ordering of the computational basis states.
+            logs: A log of the results of measurement that is added to.
+            classical_data: The shared classical data container for this
+                simulation.
 
         Returns:
-            ActOnStabilizerChFormArgs for the circuit.
+            StabilizerChFormSimulationState for the circuit.
         """
-        if isinstance(initial_state, clifford.ActOnStabilizerCHFormArgs):
-            return initial_state
+        if isinstance(initial_state, clifford.StabilizerChFormSimulationState):
+            # Instances of SimulationStateBase usually returned before this point
+            return initial_state  # pragma: no cover
 
-        qubit_map = {q: i for i, q in enumerate(qubits)}
-
-        state = CliffordState(qubit_map, initial_state=initial_state)
-        return clifford.ActOnStabilizerCHFormArgs(
-            state=state.ch_form,
+        return clifford.StabilizerChFormSimulationState(
             prng=self._prng,
-            log_of_measurement_results=logs,
+            classical_data=classical_data,
             qubits=qubits,
+            initial_state=initial_state,
         )
 
     def _create_step_result(
-        self,
-        sim_state: 'cirq.OperationTarget[clifford.ActOnStabilizerCHFormArgs]',
+        self, sim_state: cirq.SimulationStateBase[clifford.StabilizerChFormSimulationState]
     ):
         return CliffordSimulatorStepResult(sim_state=sim_state)
 
     def _create_simulator_trial_result(
         self,
-        params: study.ParamResolver,
-        measurements: Dict[str, np.ndarray],
-        final_step_result: 'CliffordSimulatorStepResult',
+        params: cirq.ParamResolver,
+        measurements: dict[str, np.ndarray],
+        final_simulator_state: cirq.SimulationStateBase[cirq.StabilizerChFormSimulationState],
     ):
-
         return CliffordTrialResult(
-            params=params, measurements=measurements, final_step_result=final_step_result
+            params=params, measurements=measurements, final_simulator_state=final_simulator_state
         )
 
 
-class CliffordTrialResult(simulator.SimulationTrialResult):
+class CliffordTrialResult(
+    simulator_base.SimulationTrialResultBase['clifford.StabilizerChFormSimulationState']
+):
     def __init__(
         self,
-        params: study.ParamResolver,
-        measurements: Dict[str, np.ndarray],
-        final_step_result: 'CliffordSimulatorStepResult',
+        params: cirq.ParamResolver,
+        measurements: dict[str, np.ndarray],
+        final_simulator_state: cirq.SimulationStateBase[cirq.StabilizerChFormSimulationState],
     ) -> None:
         super().__init__(
-            params=params, measurements=measurements, final_step_result=final_step_result
+            params=params, measurements=measurements, final_simulator_state=final_simulator_state
         )
 
     @property
-    def final_state(self):
-        return self._final_simulator_state
+    def final_state(self) -> cirq.CliffordState:
+        state = self._get_merged_sim_state()
+        clifford_state = CliffordState(state.qubit_map)
+        clifford_state.ch_form = state.state.copy()
+        return clifford_state
 
     def __str__(self) -> str:
         samples = super().__str__()
-        final = self._final_simulator_state
+        final = self._get_merged_sim_state().state
         return f'measurements: {samples}\noutput state: {final}'
+
+    def _repr_pretty_(self, p: Any, cycle: bool):
+        """iPython (Jupyter) pretty print."""
+        p.text("cirq.CliffordTrialResult(...)" if cycle else self.__str__())
 
 
 class CliffordSimulatorStepResult(
-    simulator_base.StepResultBase['clifford.CliffordState', 'clifford.ActOnStabilizerCHFormArgs']
+    simulator_base.StepResultBase['cirq.StabilizerChFormSimulationState']
 ):
     """A `StepResult` that includes `StateVectorMixin` methods."""
 
     def __init__(
-        self,
-        sim_state: 'cirq.OperationTarget[clifford.ActOnStabilizerCHFormArgs]',
+        self, sim_state: cirq.SimulationStateBase[clifford.StabilizerChFormSimulationState]
     ):
         """Results of a step of the simulator.
         Attributes:
-            sim_state: The qubit:ActOnArgs lookup for this step.
+            sim_state: The qubit:SimulationState lookup for this step.
         """
         super().__init__(sim_state)
         self._clifford_state = None
@@ -165,6 +178,10 @@ class CliffordSimulatorStepResult(
 
         return f'{measurements}{final}'
 
+    def _repr_pretty_(self, p, cycle):
+        """iPython (Jupyter) pretty print."""
+        p.text("cirq.CliffordSimulatorStateResult(...)" if cycle else self.__str__())
+
     @property
     def state(self):
         if self._clifford_state is None:
@@ -173,11 +190,8 @@ class CliffordSimulatorStepResult(
             self._clifford_state = clifford_state
         return self._clifford_state
 
-    def _simulator_state(self):
-        return self.state
 
-
-@value.value_equality
+@value.value_equality(unhashable=True)
 class CliffordState:
     """A state of the Clifford simulation.
 
@@ -187,7 +201,7 @@ class CliffordState:
     Gates and measurements are applied to each representation in O(n^2) time.
     """
 
-    def __init__(self, qubit_map, initial_state: Union[int, clifford.StabilizerStateChForm] = 0):
+    def __init__(self, qubit_map, initial_state: int | cirq.StabilizerStateChForm = 0):
         self.qubit_map = qubit_map
         self.n = len(qubit_map)
 
@@ -198,11 +212,7 @@ class CliffordState:
         )
 
     def _json_dict_(self):
-        return {
-            'cirq_type': self.__class__.__name__,
-            'qubit_map': [(k, v) for k, v in self.qubit_map.items()],
-            'ch_form': self.ch_form,
-        }
+        return {'qubit_map': [(k, v) for k, v in self.qubit_map.items()], 'ch_form': self.ch_form}
 
     @classmethod
     def _from_json_dict_(cls, qubit_map, ch_form, **kwargs):
@@ -214,7 +224,7 @@ class CliffordState:
     def _value_equality_values_(self) -> Any:
         return self.qubit_map, self.ch_form
 
-    def copy(self) -> 'CliffordState':
+    def copy(self) -> cirq.CliffordState:
         state = CliffordState(self.qubit_map)
         state.ch_form = self.ch_form.copy()
 
@@ -233,29 +243,27 @@ class CliffordState:
     def state_vector(self):
         return self.ch_form.state_vector()
 
-    def apply_unitary(self, op: 'cirq.Operation'):
-        ch_form_args = clifford.ActOnStabilizerCHFormArgs(
-            self.ch_form, np.random.RandomState(), {}, self.qubit_map.keys()
+    def apply_unitary(self, op: cirq.Operation):
+        ch_form_args = clifford.StabilizerChFormSimulationState(
+            prng=np.random.RandomState(), qubits=self.qubit_map.keys(), initial_state=self.ch_form
         )
         try:
             act_on(op, ch_form_args)
         except TypeError:
-            raise ValueError(
-                f'{str(op.gate)} cannot be run with Clifford simulator.'
-            )  # type: ignore
+            raise ValueError(f'{op.gate} cannot be run with Clifford simulator.')
         return
 
     def apply_measurement(
         self,
-        op: 'cirq.Operation',
-        measurements: Dict[str, List[np.ndarray]],
+        op: cirq.Operation,
+        measurements: dict[str, list[int]],
         prng: np.random.RandomState,
         collapse_state_vector=True,
     ):
         if not isinstance(op.gate, cirq.MeasurementGate):
             raise TypeError(
-                'apply_measurement only supports cirq.MeasurementGate operations. Found %s instead.'
-                % str(op.gate)
+                f'apply_measurement only supports cirq.MeasurementGate operations. '
+                f'Found {op.gate} instead.'
             )
 
         if collapse_state_vector:
@@ -263,7 +271,12 @@ class CliffordState:
         else:
             state = self.copy()
 
-        ch_form_args = clifford.ActOnStabilizerCHFormArgs(
-            state.ch_form, prng, measurements, self.qubit_map.keys()
+        classical_data = value.ClassicalDataDictionaryStore()
+        ch_form_args = clifford.StabilizerChFormSimulationState(
+            prng=prng,
+            classical_data=classical_data,
+            qubits=self.qubit_map.keys(),
+            initial_state=state.ch_form,
         )
         act_on(op, ch_form_args)
+        measurements.update({str(k): list(v[-1]) for k, v in classical_data.records.items()})

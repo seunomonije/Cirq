@@ -1,4 +1,4 @@
-# Copyright 2018 The ops Developers
+# Copyright 2018 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Callable, Iterable, Sequence, Tuple, Union, cast, List
+from __future__ import annotations
+
+from typing import Any, Callable, cast, Iterable, Sequence
 
 from cirq import circuits, ops, protocols
-
+from cirq.contrib import circuitdag
 from cirq.contrib.paulistring.pauli_string_dag import (
-    pauli_string_reorder_pred,
     pauli_string_dag_from_circuit,
+    pauli_string_reorder_pred,
 )
 
 
@@ -26,8 +28,7 @@ def _sorted_best_string_placements(
     possible_nodes: Iterable[Any],
     output_ops: Sequence[ops.Operation],
     key: Callable[[Any], ops.PauliStringPhasor] = lambda node: node.val,
-) -> List[Tuple[ops.PauliStringPhasor, int, circuits.Unique[ops.PauliStringPhasor]]]:
-
+) -> list[tuple[ops.PauliStringPhasor, int, circuitdag.Unique[ops.PauliStringPhasor]]]:
     sort_key = lambda placement: (-len(placement[0].pauli_string), placement[1])
 
     node_maxes = []
@@ -54,7 +55,7 @@ def _sorted_best_string_placements(
             ):
                 # This is as far through as this Pauli string can move
                 break
-            string_op = string_op.pass_operations_over([out_op], after_to_before=True)
+            string_op = string_op.conjugated_by(protocols.inverse(out_op))
             curr = (string_op, i + 1, possible_node)
             if sort_key(curr) > sort_key(node_max):
                 node_max = curr
@@ -65,10 +66,10 @@ def _sorted_best_string_placements(
 
 
 def move_pauli_strings_into_circuit(
-    circuit_left: Union[circuits.Circuit, circuits.CircuitDag], circuit_right: circuits.Circuit
+    circuit_left: circuits.Circuit | circuitdag.CircuitDag, circuit_right: circuits.Circuit
 ) -> circuits.Circuit:
-    if isinstance(circuit_left, circuits.CircuitDag):
-        string_dag = circuits.CircuitDag(pauli_string_reorder_pred, circuit_left)
+    if isinstance(circuit_left, circuitdag.CircuitDag):
+        string_dag = circuitdag.CircuitDag(pauli_string_reorder_pred, circuit_left)
     else:
         string_dag = pauli_string_dag_from_circuit(cast(circuits.Circuit, circuit_left))
     output_ops = list(circuit_right.all_operations())
@@ -84,11 +85,9 @@ def move_pauli_strings_into_circuit(
         # Pick the Pauli string that can be moved furthest through
         # the Clifford circuit
         for best_string_op, best_index, best_node in placements:
-
-            assert (
-                best_index <= last_index
-            ), "Unexpected insertion index order, {} >= {}, len: {}".format(
-                best_index, last_index, len(output_ops)
+            assert best_index <= last_index, (
+                "Unexpected insertion index order, "
+                f"{best_index} >= {last_index}, len: {len(output_ops)}"
             )
 
             last_index = best_index
@@ -104,6 +103,4 @@ def move_pauli_strings_into_circuit(
 
     assert not string_dag.nodes(), 'There was a cycle in the CircuitDag'
 
-    return circuits.Circuit(
-        output_ops, strategy=circuits.InsertStrategy.EARLIEST, device=circuit_right.device
-    )
+    return circuits.Circuit(output_ops, strategy=circuits.InsertStrategy.EARLIEST)

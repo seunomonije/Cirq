@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#         https://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, List, Tuple, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import cirq
 
@@ -20,7 +22,7 @@ if TYPE_CHECKING:
     import cirq_google
 
 
-EDGE = Tuple[cirq.GridQubit, cirq.GridQubit]
+EDGE = tuple[cirq.GridQubit, cirq.GridQubit]
 
 
 def above(qubit: cirq.GridQubit) -> cirq.GridQubit:
@@ -72,8 +74,8 @@ def right_of(qubit: cirq.GridQubit) -> cirq.GridQubit:
 
 
 def chip_as_adjacency_list(
-    device: 'cirq_google.XmonDevice',
-) -> Dict[cirq.GridQubit, List[cirq.GridQubit]]:
+    device: cirq_google.GridDevice,
+) -> dict[cirq.GridQubit, list[cirq.GridQubit]]:
     """Gives adjacency list representation of a chip.
 
     The adjacency list is constructed in order of above, left_of, below and
@@ -86,9 +88,9 @@ def chip_as_adjacency_list(
         Map from nodes to list of qubits which represent all the neighbours of
         given qubit.
     """
-    c_set = set(device.qubits)
-    c_adj: Dict[cirq.GridQubit, List[cirq.GridQubit]] = {}
-    for n in device.qubits:
+    c_set = device.metadata.qubit_set
+    c_adj: dict[cirq.GridQubit, list[cirq.GridQubit]] = {}
+    for n in c_set:
         c_adj[n] = []
         for m in [above(n), left_of(n), below(n), right_of(n)]:
             if m in c_set:

@@ -12,21 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import abc
-from typing import Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cirq import devices, work, study, protocols
+from cirq import devices, study, work
 
 if TYPE_CHECKING:
     import cirq
 
 
 class ZerosSampler(work.Sampler, metaclass=abc.ABCMeta):
-    """A dummy sampler for testing. Immediately returns zeroes."""
+    """A mock sampler for testing. Immediately returns zeroes."""
 
-    def __init__(self, device: devices.Device = None):
+    def __init__(self, device: devices.Device | None = None):
         """Construct a sampler that returns 0 for all measurements.
 
         Args:
@@ -36,11 +38,8 @@ class ZerosSampler(work.Sampler, metaclass=abc.ABCMeta):
         self.device = device
 
     def run_sweep(
-        self,
-        program: 'cirq.Circuit',
-        params: study.Sweepable,
-        repetitions: int = 1,
-    ) -> List[study.Result]:
+        self, program: cirq.AbstractCircuit, params: study.Sweepable, repetitions: int = 1
+    ) -> list[study.Result]:
         """Samples circuit as if every measurement resulted in zero.
 
         Args:
@@ -53,17 +52,19 @@ class ZerosSampler(work.Sampler, metaclass=abc.ABCMeta):
             resolver.
 
         Raises:
-            ValueError if this sampler has a device and the circuit is not
-            valid for the device.
+            ValueError: circuit is not valid for the sampler, due to invalid
+            repeated keys or incompatibility with the sampler's device.
         """
         if self.device:
             self.device.validate_circuit(program)
-        measurements = {}  # type: Dict[str, np.ndarray]
-        for op in program.all_operations():
-            key = protocols.measurement_key(op, default=None)
-            if key is not None:
-                measurements[key] = np.zeros((repetitions, len(op.qubits)), dtype=int)
+        shapes = self._get_measurement_shapes(program)
         return [
-            study.Result(params=param_resolver, measurements=measurements)
+            study.ResultDict(
+                params=param_resolver,
+                records={
+                    k: np.zeros((repetitions, num_instances, len(qid_shape)), dtype=int)
+                    for k, (num_instances, qid_shape) in shapes.items()
+                },
+            )
             for param_resolver in study.to_resolvers(params)
         ]

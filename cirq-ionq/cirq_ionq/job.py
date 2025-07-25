@@ -13,13 +13,16 @@
 # limitations under the License.
 """Represents a job created via the IonQ API."""
 
-import time
-from typing import Dict, Sequence, Union, TYPE_CHECKING
+from __future__ import annotations
 
-from cirq_ionq import ionq_exceptions, results
-from cirq._doc import document
+import json
+import time
+import warnings
+from typing import Sequence, TYPE_CHECKING
 
 import cirq
+from cirq._doc import document
+from cirq_ionq import ionq_exceptions, results
 
 if TYPE_CHECKING:
     import cirq_ionq
@@ -64,7 +67,7 @@ class Job:
         'data associated with it beyond an id and a status.',
     )
 
-    def __init__(self, client: 'cirq_ionq.ionq_client._IonQClient', job_dict: dict):
+    def __init__(self, client: cirq_ionq.ionq_client._IonQClient, job_dict: dict):
         """Construct an IonQJob.
 
         Users should not call this themselves. If you only know the `job_id`, use `get_job`
@@ -72,7 +75,7 @@ class Job:
 
         Args:
             client: The client used for calling the API.
-            job: A dict representing the response from a call to get_job on the client.
+            job_dict: A dict representing the response from a call to get_job on the client.
         """
         self._client = client
         self._job = job_dict
@@ -133,7 +136,7 @@ class Job:
         self._check_if_unsuccessful()
         return self._job['name']
 
-    def num_qubits(self) -> int:
+    def num_qubits(self, circuit_index=None) -> int:
         """Returns the number of qubits for the job.
 
         Raises:
@@ -141,6 +144,13 @@ class Job:
             IonQException: If unable to get the status of the job from the API.
         """
         self._check_if_unsuccessful()
+        if 'metadata' in self._job and circuit_index is not None:
+            if 'qubit_numbers' in self._job['metadata'].keys():
+                qubit_numbers = json.loads(self._job['metadata']['qubit_numbers'])
+                for index, qubit_number in enumerate(qubit_numbers):
+                    if index == circuit_index:
+                        return qubit_number
+
         return int(self._job['qubits'])
 
     def repetitions(self) -> int:
@@ -153,38 +163,61 @@ class Job:
         self._check_if_unsuccessful()
         return int(self._job['metadata']['shots'])
 
-    def measurement_dict(self) -> Dict[str, Sequence[int]]:
+    def measurement_dict(self, circuit_index=0) -> dict[str, Sequence[int]]:
         """Returns a dictionary of measurement keys to target qubit index."""
-        measurement_dict: Dict[str, Sequence[int]] = {}
+        measurement_dict: dict[str, Sequence[int]] = {}
         if 'metadata' in self._job:
-            full_str = ''.join(
-                value
-                for key, value in self._job['metadata'].items()
-                if key.startswith('measurement')
-            )
-            if full_str == '':
-                return measurement_dict
-            for key_value in full_str.split(chr(30)):
-                key, value = key_value.split(chr(31))
-                measurement_dict[key] = [int(t) for t in value.split(',')]
+            measurement_matadata = None
+            if 'measurements' in self._job['metadata'].keys():
+                measurements = json.loads(self._job['metadata']['measurements'])
+                for index, measurement in enumerate(measurements):
+                    if index == circuit_index:
+                        measurement_matadata = measurement
+                        break
+            else:
+                measurement_matadata = self._job['metadata']
+
+            if measurement_matadata is not None:
+                full_str = ''.join(
+                    value
+                    for key, value in measurement_matadata.items()
+                    if key.startswith('measurement')
+                )
+                if full_str == '':
+                    return measurement_dict
+                for key_value in full_str.split(chr(30)):
+                    key, value = key_value.split(chr(31))
+                    measurement_dict[key] = [int(t) for t in value.split(',')]
+
         return measurement_dict
 
     def results(
-        self, timeout_seconds: int = 7200, polling_seconds: int = 1
-    ) -> Union[results.QPUResult, results.SimulatorResult]:
+        self,
+        timeout_seconds: int = 7200,
+        polling_seconds: int = 1,
+        sharpen: bool | None = None,
+        extra_query_params: dict | None = None,
+    ) -> list[results.QPUResult] | list[results.SimulatorResult]:
         """Polls the IonQ api for results.
 
         Args:
             timeout_seconds: The total number of seconds to poll for.
             polling_seconds: The interval with which to poll.
+            sharpen: A boolean that determines how to aggregate error mitigated.
+                If True, apply majority vote mitigation; if False, apply average mitigation.
+            extra_query_params: Specify any parameters to include in the request.
 
         Returns:
-            Either a `cirq_ionq.QPUResults` or `cirq_ionq.SimulatorResults` depending on whether
-            the job was running on an actual quantum processor or a simulator.
+            Either a list of `cirq_ionq.QPUResult` or a list of `cirq_ionq.SimulatorResult`
+            depending on whether the job was running on an actual quantum processor or a
+            simulator.
 
         Raises:
             IonQUnsuccessfulJob: If the job has failed, been canceled, or deleted.
             IonQException: If unable to get the results from the API.
+            RuntimeError: If the job reported that it had failed on the server, or
+                the job had an unknown status.
+            TimeoutError: If the job timed out at the server.
         """
         time_waited_seconds = 0
         while time_waited_seconds < timeout_seconds:
@@ -193,36 +226,66 @@ class Job:
                 break
             time.sleep(polling_seconds)
             time_waited_seconds += polling_seconds
+        if 'warning' in self._job and 'messages' in self._job['warning']:
+            for warning in self._job['warning']['messages']:
+                warnings.warn(warning)
+
         if self.status() != 'completed':
             if 'failure' in self._job and 'error' in self._job['failure']:
                 error = self._job['failure']['error']
                 raise RuntimeError(f'Job failed. Error message: {error}')
+            if time_waited_seconds >= timeout_seconds:
+                raise TimeoutError(f'Job timed out after waiting {time_waited_seconds} seconds.')
             raise RuntimeError(
-                f'Job was not completed successful. Instead had status: {self.status()}'
+                f'Job was not completed successfully. Instead had status: {self.status()}'
             )
-        # IonQ returns results in little endian, Cirq prefers to use big endian, so we convert.
-        if self.target() == 'qpu':
-            repetitions = self.repetitions()
-            counts = {
-                _little_endian_to_big(int(k), self.num_qubits()): int(repetitions * float(v))
-                for k, v in self._job['data']['histogram'].items()
-            }
-            return results.QPUResult(
-                counts=counts,
-                num_qubits=self.num_qubits(),
-                measurement_dict=self.measurement_dict(),
-            )
+
+        backend_results = self._client.get_results(
+            job_id=self.job_id(), sharpen=sharpen, extra_query_params=extra_query_params
+        )
+
+        some_inner_value = next(iter(backend_results.values()))
+        if isinstance(some_inner_value, dict):
+            histograms = backend_results.values()
         else:
-            probabilities = {
-                _little_endian_to_big(int(k), self.num_qubits()): float(v)
-                for k, v in self._job['data']['histogram'].items()
-            }
-            return results.SimulatorResult(
-                probabilities=probabilities,
-                num_qubits=self.num_qubits(),
-                measurement_dict=self.measurement_dict(),
-                repetitions=self.repetitions(),
-            )
+            histograms = [backend_results]
+
+        # IonQ returns results in little endian, but
+        # Cirq prefers to use big endian, so we convert.
+        if self.target().startswith('qpu'):
+            big_endian_results_qpu: list[results.QPUResult] = []
+            for circuit_index, histogram in enumerate(histograms):
+                repetitions = self.repetitions()
+                counts = {
+                    _little_endian_to_big(int(k), self.num_qubits(circuit_index)): round(
+                        repetitions * float(v)
+                    )
+                    for k, v in histogram.items()
+                }
+                big_endian_results_qpu.append(
+                    results.QPUResult(
+                        counts=counts,
+                        num_qubits=self.num_qubits(circuit_index),
+                        measurement_dict=self.measurement_dict(circuit_index=circuit_index),
+                    )
+                )
+            return big_endian_results_qpu
+        else:
+            big_endian_results_sim: list[results.SimulatorResult] = []
+            for circuit_index, histogram in enumerate(histograms):
+                probabilities = {
+                    _little_endian_to_big(int(k), self.num_qubits(circuit_index)): float(v)
+                    for k, v in histogram.items()
+                }
+                big_endian_results_sim.append(
+                    results.SimulatorResult(
+                        probabilities=probabilities,
+                        num_qubits=self.num_qubits(circuit_index),
+                        measurement_dict=self.measurement_dict(circuit_index=circuit_index),
+                        repetitions=self.repetitions(),
+                    )
+                )
+            return big_endian_results_sim
 
     def cancel(self):
         """Cancel the given job.

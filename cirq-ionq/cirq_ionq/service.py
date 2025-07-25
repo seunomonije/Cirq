@@ -1,4 +1,5 @@
-# Copyright 2020 The Cirq Developers
+# Copyright 2021 The Cirq Developers
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -12,9 +13,11 @@
 # limitations under the License.
 """Service to access IonQs API."""
 
+from __future__ import annotations
+
 import datetime
 import os
-from typing import cast, Optional, Sequence
+from typing import Sequence
 
 import cirq
 from cirq_ionq import calibration, ionq_client, job, results, sampler, serializer
@@ -31,11 +34,12 @@ class Service:
 
     def __init__(
         self,
-        remote_host: Optional[str] = None,
-        api_key: Optional[str] = None,
-        default_target: str = None,
-        api_version='v0.1',
+        remote_host: str | None = None,
+        api_key: str | None = None,
+        default_target: str | None = None,
+        api_version='v0.3',
         max_retry_seconds: int = 3600,
+        job_settings: dict | None = None,
         verbose=False,
     ):
         """Creates the Service to access IonQ's API.
@@ -52,22 +56,30 @@ class Service:
                 and target must always be specified in calls. If set, then this default is used,
                 unless a target is specified for a given call. Supports either 'qpu' or
                 'simulator'.
-            api_version: Version of the api. Defaults to 'v0.1'.
+            api_version: Version of the api. Defaults to 'v0.3'.
             max_retry_seconds: The number of seconds to retry calls for. Defaults to one hour.
+            job_settings: A dictionary of settings which can override behavior for circuits when
+                run on IonQ hardware.
             verbose: Whether to print to stdio and stderr on retriable errors.
 
         Raises:
-            EnvironmentError: if the `api_key` is None and has no corresponding environment
-                variable set.
+            OSError: If the `api_key` is None and has no corresponding environment variable set.
+                This is actually an EnvironmentError which is equal to an OSError.
         """
         self.remote_host = (
-            remote_host or os.getenv('IONQ_REMOTE_HOST') or f'https://api.ionq.co/{api_version}'
+            remote_host
+            or os.getenv('CIRQ_IONQ_REMOTE_HOST')
+            or os.getenv('IONQ_REMOTE_HOST')
+            or f'https://api.ionq.co/{api_version}'
         )
-        self.api_key = api_key or os.getenv('IONQ_API_KEY')
+
+        self.job_settings = job_settings or {}
+        self.api_key = api_key or os.getenv('CIRQ_IONQ_API_KEY') or os.getenv('IONQ_API_KEY')
+
         if not self.api_key:
             raise EnvironmentError(
-                f'Parameter api_key was not specified and the environment variable '
-                f'IONQ_API_KEY was also not set.'
+                'Parameter api_key was not specified and the environment variable '
+                'IONQ_API_KEY was also not set.'
             )
 
         self._client = ionq_client._IonQClient(
@@ -83,10 +95,13 @@ class Service:
         self,
         circuit: cirq.Circuit,
         repetitions: int,
-        name: Optional[str] = None,
-        target: Optional[str] = None,
+        name: str | None = None,
+        target: str | None = None,
         param_resolver: cirq.ParamResolverOrSimilarType = cirq.ParamResolver({}),
         seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
+        error_mitigation: dict | None = None,
+        sharpen: bool | None = None,
+        extra_query_params: dict | None = None,
     ) -> cirq.Result:
         """Run the given circuit on the IonQ API.
 
@@ -99,19 +114,96 @@ class Service:
             seed: If the target is `simulation` the seed for generating results. If None, this
                 will be `np.random`, if an int, will be `np.random.RandomState(int)`, otherwise
                 must be a modulate similar to `np.random`.
+            error_mitigation: A dictionary of error mitigation settings. Valid keys include:
+                - 'debias': A boolean indicating whether to use the debiasing technique for
+                  aggregating results. This technique is used to reduce the bias in the results
+                  caused by measurement error and can improve the accuracy of the output.
+            sharpen: A boolean that determines how to aggregate error mitigated.
+                If True, apply majority vote mitigation; if False, apply average mitigation.
+            extra_query_params: Specify any parameters to include in the request.
 
         Returns:
             A `cirq.Result` for running the circuit.
         """
         resolved_circuit = cirq.resolve_parameters(circuit, param_resolver)
-        result = self.create_job(resolved_circuit, repetitions, name, target).results()
-        if isinstance(result, results.QPUResult):
-            return result.to_cirq_result(params=cirq.ParamResolver(param_resolver))
-        else:
-            sim_result = cast(results.SimulatorResult, result)
-            return sim_result.to_cirq_result(params=cirq.ParamResolver(param_resolver), seed=seed)
+        job_results = self.create_job(
+            circuit=resolved_circuit,
+            repetitions=repetitions,
+            name=name,
+            target=target,
+            error_mitigation=error_mitigation,
+            extra_query_params=extra_query_params,
+        ).results(sharpen=sharpen)
+        if isinstance(job_results[0], results.QPUResult):
+            return job_results[0].to_cirq_result(params=cirq.ParamResolver(param_resolver))
+        if isinstance(job_results[0], results.SimulatorResult):
+            return job_results[0].to_cirq_result(
+                params=cirq.ParamResolver(param_resolver), seed=seed
+            )
+        raise NotImplementedError(f"Unrecognized job result type '{type(job_results[0])}'.")
 
-    def sampler(self, target: Optional[str] = None, seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None):
+    def run_batch(
+        self,
+        circuits: list[cirq.AbstractCircuit],
+        repetitions: int,
+        name: str | None = None,
+        target: str | None = None,
+        param_resolver: cirq.ParamResolverOrSimilarType = cirq.ParamResolver({}),
+        seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
+        error_mitigation: dict | None = None,
+        sharpen: bool | None = None,
+        extra_query_params: dict | None = None,
+    ) -> list[cirq.Result]:
+        """Run the given circuits on the IonQ API.
+
+        Args:
+            circuits: The circuits to run.
+            repetitions: The number of times to run each circuits.
+            name: An optional name for the created job. Different from the `job_id`.
+            target: Where to run the job. Can be 'qpu' or 'simulator'.
+            param_resolver: A `cirq.ParamResolver` to resolve parameters in  `circuit`.
+            seed: If the target is `simulation` the seed for generating results. If None, this
+                will be `np.random`, if an int, will be `np.random.RandomState(int)`, otherwise
+                must be a modulate similar to `np.random`.
+            error_mitigation: A dictionary of error mitigation settings. Valid keys include:
+                - 'debias': A boolean indicating whether to use the debiasing technique for
+                  aggregating results. This technique is used to reduce the bias in the results
+                  caused by measurement error and can improve the accuracy of the output.
+            sharpen: A boolean that determines how to aggregate error mitigated.
+                If True, apply majority vote mitigation; if False, apply average mitigation.
+            extra_query_params: Specify any parameters to include in the request.
+
+        Returns:
+            A a list of `cirq.Result` for running the circuit.
+        """
+        resolved_circuits = []
+        for circuit in circuits:
+            resolved_circuits.append(cirq.resolve_parameters(circuit, param_resolver))
+
+        job_results = self.create_batch_job(
+            circuits=resolved_circuits,
+            repetitions=repetitions,
+            name=name,
+            target=target,
+            error_mitigation=error_mitigation,
+            extra_query_params=extra_query_params,
+        ).results(sharpen=sharpen)
+
+        cirq_results = []
+        for job_result in job_results:
+            if isinstance(job_result, results.QPUResult):
+                cirq_results.append(
+                    job_result.to_cirq_result(params=cirq.ParamResolver(param_resolver))
+                )
+            elif isinstance(job_result, results.SimulatorResult):
+                cirq_results.append(
+                    job_result.to_cirq_result(params=cirq.ParamResolver(param_resolver), seed=seed)
+                )
+            else:
+                raise NotImplementedError(f"Unrecognized job result type '{type(job_result)}'.")
+        return cirq_results
+
+    def sampler(self, target: str | None = None, seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None):
         """Returns a `cirq.Sampler` object for accessing the sampler interface.
 
         Args:
@@ -128,10 +220,12 @@ class Service:
 
     def create_job(
         self,
-        circuit: cirq.Circuit,
+        circuit: cirq.AbstractCircuit,
         repetitions: int = 100,
-        name: Optional[str] = None,
-        target: Optional[str] = None,
+        name: str | None = None,
+        target: str | None = None,
+        error_mitigation: dict | None = None,
+        extra_query_params: dict | None = None,
     ) -> job.Job:
         """Create a new job to run the given circuit.
 
@@ -140,6 +234,11 @@ class Service:
             repetitions: The number of times to repeat the circuit. Defaults to 100.
             name: An optional name for the created job. Different from the `job_id`.
             target: Where to run the job. Can be 'qpu' or 'simulator'.
+            error_mitigation: A dictionary of error mitigation settings. Valid keys include:
+                - 'debias': A boolean indicating whether to use the debiasing technique for
+                  aggregating results. This technique is used to reduce the bias in the results
+                  caused by measurement error and can improve the accuracy of the output.
+            extra_query_params: Specify any parameters to include in the request.
 
         Returns:
             A `cirq_ionq.IonQJob` which can be queried for status or results.
@@ -147,9 +246,57 @@ class Service:
         Raises:
             IonQException: If there was an error accessing the API.
         """
-        serialized_program = serializer.Serializer().serialize(circuit)
+        serialized_program = serializer.Serializer().serialize_single_circuit(
+            circuit, job_settings=self.job_settings, error_mitigation=error_mitigation
+        )
         result = self._client.create_job(
-            serialized_program=serialized_program, repetitions=repetitions, target=target, name=name
+            serialized_program=serialized_program,
+            repetitions=repetitions,
+            target=target,
+            name=name,
+            extra_query_params=extra_query_params,
+        )
+        # The returned job does not have fully populated fields, so make
+        # a second call and return the results of the fully filled out job.
+        return self.get_job(result['id'])
+
+    def create_batch_job(
+        self,
+        circuits: list[cirq.AbstractCircuit],
+        repetitions: int = 100,
+        name: str | None = None,
+        target: str | None = None,
+        error_mitigation: dict | None = None,
+        extra_query_params: dict | None = None,
+    ) -> job.Job:
+        """Create a new job to run the given circuit.
+
+        Args:
+            circuits: The circuits to run.
+            repetitions: The number of times to repeat the circuit. Defaults to 100.
+            name: An optional name for the created job. Different from the `job_id`.
+            target: Where to run the job. Can be 'qpu' or 'simulator'.
+            error_mitigation: A dictionary of error mitigation settings. Valid keys include:
+                - 'debias': A boolean indicating whether to use the debiasing technique for
+                  aggregating results. This technique is used to reduce the bias in the results
+                  caused by measurement error and can improve the accuracy of the output.
+            extra_query_params: Specify any parameters to include in the request.
+
+        Returns:
+            A `cirq_ionq.IonQJob` which can be queried for status or results.
+
+        Raises:
+            IonQException: If there was an error accessing the API.
+        """
+        serialized_program = serializer.Serializer().serialize_many_circuits(
+            circuits, job_settings=self.job_settings, error_mitigation=error_mitigation
+        )
+        result = self._client.create_job(
+            serialized_program=serialized_program,
+            repetitions=repetitions,
+            target=target,
+            name=name,
+            extra_query_params=extra_query_params,
         )
         # The returned job does not have fully populated fields, so make
         # a second call and return the results of the fully filled out job.
@@ -173,7 +320,7 @@ class Service:
         return job.Job(client=self._client, job_dict=job_dict)
 
     def list_jobs(
-        self, status: Optional[str] = None, limit: int = 100, batch_size: int = 1000
+        self, status: str | None = None, limit: int = 100, batch_size: int = 1000
     ) -> Sequence[job.Job]:
         """Lists jobs that have been created on the IonQ API.
 
@@ -211,8 +358,8 @@ class Service:
 
     def list_calibrations(
         self,
-        start: datetime.datetime = None,
-        end: datetime.datetime = None,
+        start: datetime.datetime | None = None,
+        end: datetime.datetime | None = None,
         limit: int = 100,
         batch_size: int = 1000,
     ) -> Sequence[calibration.Calibration]:

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import numpy as np
 import pytest
 
@@ -22,7 +24,7 @@ Y = np.array([[0, -1j], [1j, 0]])
 Z = np.diag([1, -1])
 
 
-class GoodGateExplicitPauliExpansion(cirq.SingleQubitGate):
+class GoodGateExplicitPauliExpansion(cirq.testing.SingleQubitGate):
     def _unitary_(self) -> np.ndarray:
         return np.sqrt(1 / 2) * X + np.sqrt(1 / 3) * Y + np.sqrt(1 / 6) * Z
 
@@ -32,19 +34,19 @@ class GoodGateExplicitPauliExpansion(cirq.SingleQubitGate):
 
 class GoodGateNoPauliExpansion(cirq.Gate):
     def num_qubits(self) -> int:
-        return 4
+        return 4  # pragma: no cover
 
 
-class GoodGateNoUnitary(cirq.SingleQubitGate):
+class GoodGateNoUnitary(cirq.testing.SingleQubitGate):
     def _pauli_expansion_(self) -> cirq.LinearDict[str]:
         return cirq.LinearDict({'X': np.sqrt(1 / 2), 'Y': np.sqrt(1 / 2)})
 
 
-class GoodGateNoPauliExpansionNoUnitary(cirq.SingleQubitGate):
+class GoodGateNoPauliExpansionNoUnitary(cirq.testing.SingleQubitGate):
     pass
 
 
-class BadGateInconsistentPauliExpansion(cirq.SingleQubitGate):
+class BadGateInconsistentPauliExpansion(cirq.testing.SingleQubitGate):
     def _unitary_(self) -> np.ndarray:
         return np.sqrt(1 / 2) * X + np.sqrt(1 / 3) * Y + np.sqrt(1 / 6) * Z
 
@@ -52,7 +54,7 @@ class BadGateInconsistentPauliExpansion(cirq.SingleQubitGate):
         return cirq.LinearDict({'X': np.sqrt(1 / 6), 'Y': np.sqrt(1 / 3), 'Z': np.sqrt(1 / 2)})
 
 
-def test_assert_pauli_expansion_is_consistent_with_unitary():
+def test_assert_pauli_expansion_is_consistent_with_unitary() -> None:
     cirq.testing.assert_pauli_expansion_is_consistent_with_unitary(GoodGateExplicitPauliExpansion())
     cirq.testing.assert_pauli_expansion_is_consistent_with_unitary(GoodGateNoPauliExpansion())
     cirq.testing.assert_pauli_expansion_is_consistent_with_unitary(GoodGateNoUnitary())

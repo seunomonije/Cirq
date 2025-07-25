@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import pytest
 
 from cirq import quirk_url_to_circuit
 
 
-def test_non_physical_operations():
+def test_non_physical_operations() -> None:
     with pytest.raises(NotImplementedError, match="unphysical operation"):
         _ = quirk_url_to_circuit('https://algassert.com/quirk#circuit={"cols":[["__error__"]]}')
     with pytest.raises(NotImplementedError, match="unphysical operation"):
@@ -26,7 +28,7 @@ def test_non_physical_operations():
         )
 
 
-def test_not_implemented_gates():
+def test_not_implemented_gates() -> None:
     # This test mostly exists to ensure the gates are tested if added.
 
     for k in ["X^⌈t⌉", "X^⌈t-¼⌉", "Counting4", "Uncounting4", ">>t3", "<<t3"]:

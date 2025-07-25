@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import numpy as np
 import pytest
 
@@ -257,8 +259,7 @@ def test_apply_channel_unitary():
             val, rho, left_axes=[1], right_axes=[3], assert_result_is_out_buf=True
         )
         np.testing.assert_almost_equal(
-            result,
-            np.reshape(np.outer([1, 1j, 1, 1j], [1, -1j, 1, -1j]), shape),
+            result, np.reshape(np.outer([1, 1j, 1, 1j], [1, -1j, 1, -1j]), shape)
         )
 
 

@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from datetime import timedelta
+
+import numpy as np
 import pytest
 import sympy
 
@@ -45,16 +49,23 @@ def test_init():
         _ = Duration(object())
 
 
+def test_numpy_types():
+    assert Duration(nanos=np.float64(1)).total_nanos() == 1.0
+    assert Duration(nanos=np.int64(1)).total_nanos() == 1.0
+    assert type(Duration(nanos=np.float64(1)).total_nanos()) == float
+    assert type(Duration(nanos=np.int64(1)).total_nanos()) == float
+
+
 def test_init_timedelta():
     assert Duration(timedelta(microseconds=0)).total_picos() == 0
-    assert Duration(timedelta(microseconds=513)).total_picos() == 513 * 10 ** 6
-    assert Duration(timedelta(microseconds=-5)).total_picos() == -5 * 10 ** 6
-    assert Duration(timedelta(microseconds=211)).total_picos() == 211 * 10 ** 6
+    assert Duration(timedelta(microseconds=513)).total_picos() == 513 * 10**6
+    assert Duration(timedelta(microseconds=-5)).total_picos() == -5 * 10**6
+    assert Duration(timedelta(microseconds=211)).total_picos() == 211 * 10**6
 
-    assert Duration(timedelta(seconds=3)).total_picos() == 3 * 10 ** 12
-    assert Duration(timedelta(seconds=-5)).total_picos() == -5 * 10 ** 12
-    assert Duration(timedelta(seconds=3)).total_nanos() == 3 * 10 ** 9
-    assert Duration(timedelta(seconds=-5)).total_nanos() == -5 * 10 ** 9
+    assert Duration(timedelta(seconds=3)).total_picos() == 3 * 10**12
+    assert Duration(timedelta(seconds=-5)).total_picos() == -5 * 10**12
+    assert Duration(timedelta(seconds=3)).total_nanos() == 3 * 10**9
+    assert Duration(timedelta(seconds=-5)).total_nanos() == -5 * 10**9
 
 
 def test_total():
@@ -160,9 +171,11 @@ def test_sub():
 def test_mul():
     assert Duration(picos=2) * 3 == Duration(picos=6)
     assert 4 * Duration(picos=3) == Duration(picos=12)
+    assert 0 * Duration(picos=10) == Duration()
 
     t = sympy.Symbol('t')
     assert t * Duration(picos=3) == Duration(picos=3 * t)
+    assert 0 * Duration(picos=t) == Duration(picos=0)
 
     with pytest.raises(TypeError):
         _ = Duration() * Duration()
@@ -177,7 +190,7 @@ def test_div():
 
 def test_json_dict():
     d = Duration(picos=6)
-    assert d._json_dict_() == {'cirq_type': 'Duration', 'picos': 6}
+    assert d._json_dict_() == {'picos': 6}
 
 
 def test_str():

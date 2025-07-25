@@ -11,13 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Defines `@cirq.value_equality`, for easy __eq__/__hash__ methods."""
 
-from typing import Union, Callable, overload, Any
+from __future__ import annotations
+
+from typing import Any, Callable, overload
 
 from typing_extensions import Protocol
 
-from cirq import protocols
+from cirq import _compat, protocols
 
 
 class _SupportsValueEquality(Protocol):
@@ -50,8 +53,7 @@ class _SupportsValueEquality(Protocol):
         Returns:
             Any type supported by `cirq.approx_eq()`.
         """
-        # coverage: ignore
-        return self._value_equality_values_()
+        return self._value_equality_values_()  # pragma: no cover
 
     def _value_equality_values_cls_(self) -> Any:
         """Automatically implemented by the `cirq.value_equality` decorator.
@@ -71,6 +73,8 @@ class _SupportsValueEquality(Protocol):
 
 
 def _value_equality_eq(self: _SupportsValueEquality, other: _SupportsValueEquality) -> bool:
+    if other is self:
+        return True
     cls_self = self._value_equality_values_cls_()
     get_cls_other = getattr(other, '_value_equality_values_cls_', None)
     if get_cls_other is None:
@@ -82,7 +86,7 @@ def _value_equality_eq(self: _SupportsValueEquality, other: _SupportsValueEquali
 
 
 def _value_equality_ne(self: _SupportsValueEquality, other: _SupportsValueEquality) -> bool:
-    return not self == other
+    return not self == other  # noqa: SIM201
 
 
 def _value_equality_hash(self: _SupportsValueEquality) -> int:
@@ -92,15 +96,15 @@ def _value_equality_hash(self: _SupportsValueEquality) -> int:
 def _value_equality_approx_eq(
     self: _SupportsValueEquality, other: _SupportsValueEquality, atol: float
 ) -> bool:
-
-    # Preserve regular equality type-comparison logic.
+    if other is self:
+        return True
     cls_self = self._value_equality_values_cls_()
-    if not isinstance(other, cls_self):
+    get_cls_other = getattr(other, '_value_equality_values_cls_', None)
+    if get_cls_other is None:
         return NotImplemented
     cls_other = other._value_equality_values_cls_()
     if cls_self != cls_other:
         return False
-
     # Delegate to cirq.approx_eq for approximate equality comparison.
     return protocols.approx_eq(
         self._value_equality_approximate_values_(),
@@ -109,7 +113,16 @@ def _value_equality_approx_eq(
     )
 
 
-# pylint: disable=function-redefined
+def _value_equality_getstate(self: _SupportsValueEquality) -> dict[str, Any]:
+    # clear cached hash value when pickling, see #6674
+    state = self.__dict__
+    hash_attr = _compat._method_cache_name(self.__hash__)
+    if hash_attr in state:
+        state = state.copy()
+        del state[hash_attr]
+    return state
+
+
 @overload
 def value_equality(
     cls: type,
@@ -134,13 +147,13 @@ def value_equality(
 
 
 def value_equality(
-    cls: type = None,
+    cls: type | None = None,
     *,
     unhashable: bool = False,
     distinct_child_types: bool = False,
     manual_cls: bool = False,
     approximate: bool = False,
-) -> Union[Callable[[type], type], type]:
+) -> Callable[[type], type] | type:
     """Implements __eq__/__ne__/__hash__ via a _value_equality_values_ method.
 
     _value_equality_values_ is a method that the decorated class must implement.
@@ -182,6 +195,13 @@ def value_equality(
         approximate: When set, the decorated class will be enhanced with
             `_approx_eq_` implementation and thus start to support the
             `SupportsApproximateEquality` protocol.
+
+    Raises:
+        TypeError: If the class decorated does not implement the required
+            `_value_equality_values` method or, if `manual_cls` is True,
+            the class does not implement `_value_equality_values_cls_`.
+        ValueError: If both `distinct_child_types` and `manual_cls` are
+            specified.
     """
 
     # If keyword arguments were specified, python invokes the decorator method
@@ -217,16 +237,23 @@ def value_equality(
             )
     else:
         setattr(cls, '_value_equality_values_cls_', lambda self: cls)
-    setattr(cls, '__hash__', None if unhashable else _value_equality_hash)
+    cached_values_getter = values_getter if unhashable else _compat.cached_method(values_getter)
+    setattr(cls, '_value_equality_values_', cached_values_getter)
+    setattr(cls, '__hash__', None if unhashable else _compat.cached_method(_value_equality_hash))
+    if not unhashable:
+        setattr(cls, '__getstate__', _value_equality_getstate)
     setattr(cls, '__eq__', _value_equality_eq)
     setattr(cls, '__ne__', _value_equality_ne)
 
     if approximate:
         if not hasattr(cls, '_value_equality_approximate_values_'):
-            setattr(cls, '_value_equality_approximate_values_', values_getter)
+            setattr(cls, '_value_equality_approximate_values_', cached_values_getter)
+        else:
+            approx_values_getter = getattr(cls, '_value_equality_approximate_values_')
+            cached_approx_values_getter = (
+                approx_values_getter if unhashable else _compat.cached_method(approx_values_getter)
+            )
+            setattr(cls, '_value_equality_approximate_values_', cached_approx_values_getter)
         setattr(cls, '_approx_eq_', _value_equality_approx_eq)
 
     return cls
-
-
-# pylint: enable=function-redefined

@@ -11,45 +11,54 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import os
+import shutil
+import subprocess
 from unittest import mock
 
 import pytest
 
 from dev_tools import shell_tools
 from dev_tools.modules import list_modules
+from dev_tools.test_utils import only_on_posix
 
-PACKAGES = [
-    "-r",
-    "dev_tools/requirements/deps/pytest.txt",
-    "-r",
-    # one of the _compat_test.py tests uses flynt for testing metadata
-    "dev_tools/requirements/deps/flynt.txt",
-]
+PACKAGES = ["-r", "dev_tools/requirements/isolated-base.env.txt"]
 
 
+@only_on_posix
 @pytest.mark.slow
 # ensure that no cirq packages are on the PYTHONPATH, this is important, otherwise
 # the "isolation" fails and for example cirq-core would be on the PATH
 @mock.patch.dict(os.environ, {"PYTHONPATH": ""})
 @pytest.mark.parametrize('module', list_modules(), ids=[m.name for m in list_modules()])
-def test_isolated_packages(cloned_env, module):
+def test_isolated_packages(cloned_env, module, tmp_path) -> None:
     env = cloned_env("isolated_packages", *PACKAGES)
 
     if str(module.root) != "cirq-core":
         assert f'cirq-core=={module.version}' in module.install_requires
 
-    result = shell_tools.run_cmd(
-        *f"{env}/bin/pip install ./{module.root} ./cirq-core".split(),
-        err=shell_tools.TeeCapture(),
-        raise_on_fail=False,
+    # TODO: Remove after upgrading package builds from setup.py to PEP-517
+    # Create per-worker copy of cirq-core sources so that parallel builds
+    # of cirq-core wheel do not conflict.
+    opt_cirq_core = (
+        [str(shutil.copytree("./cirq-core", tmp_path / "cirq-core"))]
+        if str(module.root) != "cirq-core"
+        else []
     )
-    assert result.exit_code == 0, f"Failed to install {module.name}:\n{result.err}"
+    result = shell_tools.run(
+        [f"{env}/bin/pip", "install", f"./{module.root}", *opt_cirq_core],
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert result.returncode == 0, f"Failed to install {module.name}:\n{result.stderr}"
 
-    result = shell_tools.run_cmd(
-        *f"{env}/bin/pytest ./{module.root} --ignore ./cirq-core/cirq/contrib".split(),
-        out=shell_tools.TeeCapture(),
-        err=shell_tools.TeeCapture(),
-        raise_on_fail=False,
+    result = shell_tools.run(
+        f"{env}/bin/pytest ./{module.root} --ignore ./cirq-core/cirq/contrib".split(),
+        capture_output=True,
+        check=False,
     )
-    assert result.exit_code == 0, f"Failed isolated tests for {module.name}:\n{result.stdout}"
+    assert result.returncode == 0, f"Failed isolated tests for {module.name}:\n{result.stdout}"
+    shutil.rmtree(env)

@@ -11,14 +11,20 @@ option java_multiple_files = true;
 // This message specifies information that is needed when sending a
 // Program message to the device.
 message DeviceSpecification {
-
   // A list of allowed gatesets for programs submitted to this processor
   // Language.gate_set should be one of these values to be valid.
-  repeated GateSet valid_gate_sets = 1;
+  repeated GateSet valid_gate_sets = 1 [deprecated = true];
+
+  // The device gateset.
+  // Contains the list of gates allowed in programs submitted to this processor.
+  repeated GateSpecification valid_gates = 5;
 
   // A list of allowed ids for qubits within the Program.
   // Any programs with ids not in this list will be rejected.
   // If empty, all qubit values are allowed (e.g. in a simulator)
+  // Only grid qubits are supported. Strings must be in the form '<int>_<int>'.
+  // Single-qubit gates can be applied to all qubits.
+  // Measurement and wait gates can be applied to all subset of qubits.
   repeated string valid_qubits = 2;
 
   // A list of targets that gates can use.
@@ -30,12 +36,61 @@ message DeviceSpecification {
   string developer_recommendations = 4;
 }
 
-message GateSet {
-   // The name of the gate set corresponding to Language.gate_set
-   string name = 1;
+// This contains information about a single device gate.
+// Replaces `GateDefinition`.
+message GateSpecification {
+  // This defines the approximate duration to run the gate on the device,
+  // specified as an integer number of picoseconds.
+  int64 gate_duration_picos = 1;
 
-   // A list of valid gates permitted by this gate set
-   repeated GateDefinition valid_gates = 2;
+  // This specifies the gate type and gate parameter constraints for this
+  // device gate.
+  oneof gate {
+    Sycamore syc = 2;
+    SqrtISwap sqrt_iswap = 3;
+    SqrtISwapInv sqrt_iswap_inv = 4;
+    CZ cz = 5;
+    PhasedXZ phased_xz = 6;
+    VirtualZPow virtual_zpow = 7;
+    PhysicalZPow physical_zpow = 8;
+    CouplerPulse coupler_pulse = 9;
+    Measurement meas = 10;
+    Wait wait = 11;
+    FSimViaModel fsim_via_model = 12;
+    CZPowGate cz_pow_gate = 13;
+    InternalGate internal_gate = 14;
+    Reset reset = 15;
+  }
+
+  // Gate types available to Google devices.
+  // Future gates may have parameter constraints that are frequently updated.
+  // In such cases, the gate message will contain additional fields to specify
+  // those constraints.
+  message Sycamore {}
+  message SqrtISwap {}
+  message SqrtISwapInv {}
+  message CZ {}
+  message PhasedXZ {}
+  message VirtualZPow {}
+  message PhysicalZPow {}
+  message CouplerPulse {}
+  message Measurement {}
+  message Wait {}
+  message FSimViaModel {}
+  message CZPowGate {}
+  // This gate gets mapped to the internal representation corresponding
+  // to <gate_module.gate_name>.
+  message InternalGate {}
+  // This gate resets qubit to its |0> state.
+  message Reset {}
+}
+
+message GateSet {
+  // The name of the gate set corresponding to Language.gate_set
+  string name = 1;
+
+  // A list of valid gates permitted by this gate set
+  repeated GateDefinition valid_gates = 2;
 }
 
 message GateDefinition {
@@ -61,13 +116,12 @@ message GateDefinition {
 
 // A description of an argument to an operation.
 message ArgDefinition {
-
   // Note: This should be kept in sync with the ArgValue proto
   enum ArgType {
-     UNSPECIFIED = 0;
-     FLOAT = 1;
-     REPEATED_BOOLEAN = 2;
-     STRING = 3;
+    UNSPECIFIED = 0;
+    FLOAT = 1;
+    REPEATED_BOOLEAN = 2;
+    STRING = 3;
   }
 
   // The name of the argument
@@ -82,7 +136,7 @@ message ArgDefinition {
 
   // This should only be populated for type FLOAT.
   // If not set, all float values are allowed.
-  repeated ArgumentRange allowed_ranges =3;
+  repeated ArgumentRange allowed_ranges = 3;
 }
 
 // Minimum value is inclusive and maximum value is exclusive.
@@ -99,18 +153,22 @@ message TargetSet {
     UNSPECIFIED = 0;
 
     // Symmetric gates, any id order within each target is valid.
+    // Two-qubit gates can be applied to all two-element targets in a TargetSet
+    // of this type.
     SYMMETRIC = 1;
 
     // Asymmetric gates, the order of ids in each target is important.
     // Only the order specified in each target is valid.
-    ASYMMETRIC = 2;
+    // Deprecated: Unused
+    ASYMMETRIC = 2 [deprecated = true];
 
     // All targets in this TargetSet should contain only a single qubit id.
     // Gates using this TargetSet can be applied to any subset of these targets
     // in any order.
     // For example, this could be the case for measurement gates that can
     // measure any subset of qubits at once.
-    SUBSET_PERMUTATION = 3;
+    // Deprecated: Measurement gate can be applied to all subset of qubits.
+    SUBSET_PERMUTATION = 3 [deprecated = true];
   }
 
   // The name of the target list.

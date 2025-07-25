@@ -11,9 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List
+
+from __future__ import annotations
 
 import time
+
 import requests
 
 import cirq
@@ -21,18 +23,28 @@ import cirq_pasqal
 
 
 class PasqalSampler(cirq.work.Sampler):
-    def __init__(self, remote_host: str, access_token: str = '') -> None:
+    def __init__(
+        self,
+        remote_host: str,
+        access_token: str = '',
+        device: cirq_pasqal.PasqalDevice | None = None,
+    ) -> None:
         """Inits PasqalSampler.
 
         Args:
             remote_host: Address of the remote device.
             access_token: Access token for the remote api.
+            device: Optional cirq_pasqal.PasqalDevice to use with
+                the sampler.
         """
         self.remote_host = remote_host
         self._authorization_header = {"Authorization": access_token}
+        self._device = device
 
     def _serialize_circuit(
-        self, circuit: cirq.circuits.Circuit, param_resolver: cirq.study.ParamResolverOrSimilarType
+        self,
+        circuit: cirq.circuits.AbstractCircuit,
+        param_resolver: cirq.study.ParamResolverOrSimilarType,
     ) -> str:
         """Serialize a given Circuit.
         Args:
@@ -56,11 +68,7 @@ class PasqalSampler(cirq.work.Sampler):
 
         url = f'{self.remote_host}/get-result/{task_id}'
         while True:
-            response = requests.get(
-                url,
-                headers=self._authorization_header,
-                verify=False,
-            )
+            response = requests.get(url, headers=self._authorization_header, verify=False)
             response.raise_for_status()
 
             result = response.text
@@ -83,10 +91,7 @@ class PasqalSampler(cirq.work.Sampler):
         submit_response = requests.post(
             simulate_url,
             verify=False,
-            headers={
-                "Repetitions": str(repetitions),
-                **self._authorization_header,
-            },
+            headers={"Repetitions": str(repetitions), **self._authorization_header},
             data=serialization_str,
         )
         submit_response.raise_for_status()
@@ -99,8 +104,8 @@ class PasqalSampler(cirq.work.Sampler):
         return result
 
     def run_sweep(
-        self, program: cirq.Circuit, params: cirq.study.Sweepable, repetitions: int = 1
-    ) -> List[cirq.study.Result]:
+        self, program: cirq.AbstractCircuit, params: cirq.study.Sweepable, repetitions: int = 1
+    ) -> list[cirq.study.Result]:
         """Samples from the given Circuit.
         In contrast to run, this allows for sweeping over different parameter
         values.
@@ -112,8 +117,11 @@ class PasqalSampler(cirq.work.Sampler):
             Result list for this run; one for each possible parameter
             resolver.
         """
-        assert isinstance(program.device, cirq_pasqal.PasqalDevice)
-        program.device.validate_circuit(program)
+        device = self._device
+        assert isinstance(
+            device, cirq_pasqal.PasqalDevice
+        ), "Device must inherit from cirq.PasqalDevice."
+        device.validate_circuit(program)
         trial_results = []
 
         for param_resolver in cirq.study.to_resolvers(params):

@@ -12,28 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Union, Sequence, Dict, Optional, TYPE_CHECKING
+from __future__ import annotations
 
-from cirq import ops, value
-from cirq.ops import Qid
-from cirq.circuits import Circuit
+from typing import Sequence, TYPE_CHECKING
+
+from cirq import circuits, ops, value
 from cirq._doc import document
 
 if TYPE_CHECKING:
     import cirq
 
-DEFAULT_GATE_DOMAIN: Dict[ops.Gate, int] = {
-    ops.CNOT: 2,
-    ops.CZ: 2,
-    ops.H: 1,
-    ops.ISWAP: 2,
+DEFAULT_GATE_DOMAIN: dict[ops.Gate, int] = {
+    ops.CNOT: 2,  # type: ignore[has-type]
+    ops.CZ: 2,  # type: ignore[has-type]
+    ops.H: 1,  # type: ignore[has-type]
+    ops.ISWAP: 2,  # type: ignore[has-type]
     ops.CZPowGate(): 2,
-    ops.S: 1,
-    ops.SWAP: 2,
-    ops.T: 1,
-    ops.X: 1,
-    ops.Y: 1,
-    ops.Z: 1,
+    ops.S: 1,  # type: ignore[has-type]
+    ops.SWAP: 2,  # type: ignore[has-type]
+    ops.T: 1,  # type: ignore[has-type]
+    ops.X: 1,  # type: ignore[has-type]
+    ops.Y: 1,  # type: ignore[has-type]
+    ops.Z: 1,  # type: ignore[has-type]
 }
 document(
     DEFAULT_GATE_DOMAIN,
@@ -46,12 +46,12 @@ and Z gates.
 
 
 def random_circuit(
-    qubits: Union[Sequence[ops.Qid], int],
+    qubits: Sequence[cirq.Qid] | int,
     n_moments: int,
     op_density: float,
-    gate_domain: Optional[Dict[ops.Gate, int]] = None,
-    random_state: 'cirq.RANDOM_STATE_OR_SEED_LIKE' = None,
-) -> Circuit:
+    gate_domain: dict[ops.Gate, int] | None = None,
+    random_state: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
+) -> circuits.Circuit:
     """Generates a random circuit.
 
     Args:
@@ -107,7 +107,7 @@ def random_circuit(
 
     prng = value.parse_random_state(random_state)
 
-    moments: List[ops.Moment] = []
+    moments: list[circuits.Moment] = []
     gate_arity_pairs = sorted(gate_domain.items(), key=repr)
     num_gates = len(gate_domain)
     for _ in range(n_moments):
@@ -119,17 +119,17 @@ def random_circuit(
             free_qubits.difference_update(op_qubits)
             if prng.rand() <= op_density:
                 operations.append(gate(*op_qubits))
-        moments.append(ops.Moment(operations))
+        moments.append(circuits.Moment(operations))
 
-    return Circuit(moments)
+    return circuits.Circuit(moments)
 
 
 def random_two_qubit_circuit_with_czs(
     num_czs: int = 3,
-    q0: Qid = None,
-    q1: Qid = None,
-    random_state: 'cirq.RANDOM_STATE_OR_SEED_LIKE' = None,
-) -> Circuit:
+    q0: cirq.Qid | None = None,
+    q1: cirq.Qid | None = None,
+    random_state: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
+) -> circuits.Circuit:
     """Creates a random two qubit circuit with the given number of CNOTs.
 
     The resulting circuit will have `num_cnots` number of CNOTs that will be
@@ -151,13 +151,9 @@ def random_two_qubit_circuit_with_czs(
         return ops.PhasedXPowGate(phase_exponent=prng.rand(), exponent=prng.rand())
 
     def one_cz():
-        return [
-            ops.CZ.on(q0, q1),
-            random_one_qubit_gate().on(q0),
-            random_one_qubit_gate().on(q1),
-        ]
+        return [ops.CZ.on(q0, q1), random_one_qubit_gate().on(q0), random_one_qubit_gate().on(q1)]
 
-    return Circuit(
+    return circuits.Circuit(
         [
             random_one_qubit_gate().on(q0),
             random_one_qubit_gate().on(q1),

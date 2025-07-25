@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright 2018 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import os
 import sys
 
 from dev_tools import prepared_env, shell_tools
-
 from dev_tools.incremental_coverage import check_for_uncovered_lines
 
 
@@ -26,7 +25,7 @@ def main():
     if len(sys.argv) < 2:
         print(
             shell_tools.highlight(
-                'Must specify a comparison branch (e.g. "origin/master" or "HEAD~1").',
+                'Must specify a comparison branch (e.g. "origin/main" or "HEAD~1").',
                 shell_tools.RED,
             )
         )

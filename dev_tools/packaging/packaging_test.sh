@@ -24,34 +24,42 @@ set -e
 
 # Temporary workspace.
 tmp_dir=$(mktemp -d)
-trap "{ rm -rf ${tmp_dir}; }" EXIT
+trap '{ rm -rf "${tmp_dir}"; }' EXIT
 
 # New virtual environment
 echo "Working in a fresh virtualenv at ${tmp_dir}/env"
-virtualenv --quiet "--python=/usr/bin/python3" "${tmp_dir}/env"
+python3.11 -m venv "${tmp_dir}/env"
 
-export CIRQ_PRE_RELEASE_VERSION=$(dev_tools/packaging/generate-dev-version-id.sh)
+export CIRQ_PRE_RELEASE_VERSION
+CIRQ_PRE_RELEASE_VERSION=$(dev_tools/packaging/generate-dev-version-id.sh)
 out_dir=${tmp_dir}/dist
-dev_tools/packaging/produce-package.sh ${out_dir} $CIRQ_PRE_RELEASE_VERSION
+dev_tools/packaging/produce-package.sh "${out_dir}" "$CIRQ_PRE_RELEASE_VERSION"
 
 # test installation
-"${tmp_dir}/env/bin/python" -m pip install ${out_dir}/*
+"${tmp_dir}/env/bin/python" -m pip install "${out_dir}"/*
 
 echo ===========================
 echo Testing that code executes
 echo ===========================
 
-"${tmp_dir}/env/bin/python" -c "import cirq; print(cirq.google.Foxtail)"
-"${tmp_dir}/env/bin/python" -c "import cirq_google; print(cirq_google.Foxtail)"
 "${tmp_dir}/env/bin/python" -c "import cirq; print(cirq.Circuit(cirq.CZ(*cirq.LineQubit.range(2))))"
+"${tmp_dir}/env/bin/python" -c "import cirq_google; print(cirq_google.Sycamore)"
+
 
 echo =======================================
 echo Testing that all modules are installed
 echo =======================================
 
+python_test_template="\
+import @p
+print(@p)
+assert '${tmp_dir}' in @p.__file__, 'Package path seems invalid.'
+assert '${CIRQ_PRE_RELEASE_VERSION}' == @p.__version__, 'Package version is invalid'
+"
+
 CIRQ_PACKAGES=$(env PYTHONPATH=. python dev_tools/modules.py list --mode package)
 for p in $CIRQ_PACKAGES; do
-  echo --- Testing $p -----
-  python_test="import $p; print($p); assert '${tmp_dir}' in $p.__file__, 'Package path seems invalid.'"
+  echo "--- Testing $p -----"
+  python_test="${python_test_template//@p/$p}"
   env PYTHONPATH='' "${tmp_dir}/env/bin/python" -c "$python_test" && echo -e "\033[32mPASS\033[0m"  || echo -e "\033[31mFAIL\033[0m"
 done

@@ -11,13 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import pytest
 
 import cirq
 from cirq.testing.devices import ValidatingTestDevice
 
 
-def test_validating_types_and_qubits():
+def test_validating_types_and_qubits() -> None:
     dev = ValidatingTestDevice(
         allowed_qubit_types=(cirq.GridQubit,),
         allowed_gates=(cirq.XPowGate,),
@@ -37,7 +40,7 @@ def test_validating_types_and_qubits():
         dev.validate_operation(cirq.Y(cirq.GridQubit(0, 0)))
 
 
-def test_validating_locality():
+def test_validating_locality() -> None:
     dev = ValidatingTestDevice(
         allowed_qubit_types=(cirq.GridQubit,),
         allowed_gates=(cirq.CZPowGate, cirq.MeasurementGate),
@@ -62,48 +65,7 @@ def test_validating_locality():
         )
 
 
-def test_autodecompose():
-    dev = ValidatingTestDevice(
-        allowed_qubit_types=(cirq.LineQubit,),
-        allowed_gates=(
-            cirq.XPowGate,
-            cirq.ZPowGate,
-            cirq.CZPowGate,
-            cirq.YPowGate,
-            cirq.MeasurementGate,
-        ),
-        qubits=set(cirq.LineQubit.range(3)),
-        name='test',
-        validate_locality=False,
-        auto_decompose_gates=(cirq.CCXPowGate,),
-    )
-
-    a, b, c = cirq.LineQubit.range(3)
-    circuit = cirq.Circuit(cirq.CCX(a, b, c), device=dev)
-    decomposed = cirq.decompose(cirq.CCX(a, b, c))
-    assert circuit.moments == cirq.Circuit(decomposed).moments
-
-    with pytest.raises(ValueError, match="Unsupported gate type: cirq.TOFFOLI"):
-        dev = ValidatingTestDevice(
-            allowed_qubit_types=(cirq.LineQubit,),
-            allowed_gates=(
-                cirq.XPowGate,
-                cirq.ZPowGate,
-                cirq.CZPowGate,
-                cirq.YPowGate,
-                cirq.MeasurementGate,
-            ),
-            qubits=set(cirq.LineQubit.range(3)),
-            name='test',
-            validate_locality=False,
-            auto_decompose_gates=tuple(),
-        )
-
-        a, b, c = cirq.LineQubit.range(3)
-        cirq.Circuit(cirq.CCX(a, b, c), device=dev)
-
-
-def test_repr():
+def test_repr() -> None:
     dev = ValidatingTestDevice(
         allowed_qubit_types=(cirq.GridQubit,),
         allowed_gates=(cirq.CZPowGate, cirq.MeasurementGate),
@@ -114,7 +76,7 @@ def test_repr():
     assert repr(dev) == 'test'
 
 
-def test_defaults():
+def test_defaults() -> None:
     dev = ValidatingTestDevice(qubits={cirq.GridQubit(0, 0)})
     assert repr(dev) == 'ValidatingTestDevice'
     assert dev.allowed_qubit_types == (cirq.GridQubit,)

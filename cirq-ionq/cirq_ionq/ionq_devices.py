@@ -1,4 +1,5 @@
 # Copyright 2021 The Cirq Developers
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -12,15 +13,16 @@
 # limitations under the License.
 """Devices for IonQ hardware."""
 
-from typing import AbstractSet, Callable, Dict, Sequence, Type, Union
+from __future__ import annotations
 
-import numpy as np
+from typing import Sequence
 
 import cirq
+from cirq_ionq import ionq_gateset
 
 
 class IonQAPIDevice(cirq.Device):
-    """A device that uses the gates exposed by the IonQ API.
+    """A device that uses the QIS gates exposed by the IonQ API.
 
     When using this device in constructing a circuit, it will convert one and two qubit gates
     that are not supported by the API into those supported by the API if they have a unitary
@@ -36,7 +38,7 @@ class IonQAPIDevice(cirq.Device):
         * `cirq.MeasurementGate`
     """
 
-    def __init__(self, qubits: Union[Sequence[cirq.LineQubit], int], atol=1e-8):
+    def __init__(self, qubits: Sequence[cirq.LineQubit] | int, atol=1e-8):
         """Construct the device.
 
         Args:
@@ -50,23 +52,14 @@ class IonQAPIDevice(cirq.Device):
         else:
             self.qubits = frozenset(qubits)
         self.atol = atol
-        all_gates_valid = lambda x: True
-        near_1_mod_2 = lambda x: abs(x.gate.exponent % 2 - 1) < self.atol
-        self._is_api_gate_dispatch: Dict[Type['cirq.Gate'], Callable] = {
-            cirq.XPowGate: all_gates_valid,
-            cirq.YPowGate: all_gates_valid,
-            cirq.ZPowGate: all_gates_valid,
-            cirq.XXPowGate: all_gates_valid,
-            cirq.YYPowGate: all_gates_valid,
-            cirq.ZZPowGate: all_gates_valid,
-            cirq.CNotPowGate: near_1_mod_2,
-            cirq.HPowGate: near_1_mod_2,
-            cirq.SwapPowGate: near_1_mod_2,
-            cirq.MeasurementGate: all_gates_valid,
-        }
+        self.gateset = ionq_gateset.IonQTargetGateset()
+        self._metadata = cirq.DeviceMetadata(
+            self.qubits, [(a, b) for a in self.qubits for b in self.qubits if a != b]
+        )
 
-    def qubit_set(self) -> AbstractSet['cirq.Qid']:
-        return self.qubits
+    @property
+    def metadata(self) -> cirq.DeviceMetadata:
+        return self._metadata
 
     def validate_operation(self, operation: cirq.Operation):
         if operation.gate is None:
@@ -75,50 +68,8 @@ class IonQAPIDevice(cirq.Device):
             )
         if not self.is_api_gate(operation):
             raise ValueError(f'IonQAPIDevice has unsupported gate {operation.gate}.')
-        if not set(operation.qubits).intersection(self.qubit_set()):
+        if not set(operation.qubits).intersection(self.metadata.qubit_set):
             raise ValueError(f'Operation with qubits not on the device. Qubits: {operation.qubits}')
 
     def is_api_gate(self, operation: cirq.Operation) -> bool:
-        gate = operation.gate
-        for gate_mro_type in type(gate).mro():
-            if gate_mro_type in self._is_api_gate_dispatch:
-                return self._is_api_gate_dispatch[gate_mro_type](operation)
-        return False
-
-    def decompose_operation(self, operation: cirq.Operation) -> cirq.OP_TREE:
-        if self.is_api_gate(operation):
-            return operation
-        assert cirq.has_unitary(operation), (
-            f'Operation {operation} that is not available on the IonQ API nor does it have a '
-            'unitary matrix to use to decompose it to the API.'
-        )
-        num_qubits = len(operation.qubits)
-        if num_qubits == 1:
-            return self._decompose_single_qubit(operation)
-        if num_qubits == 2:
-            return self._decompose_two_qubit(operation)
-        raise ValueError('Operation {operation} not supported by IonQ API.')
-
-    def _decompose_single_qubit(self, operation: cirq.Operation) -> cirq.OP_TREE:
-        qubit = operation.qubits[0]
-        mat = cirq.unitary(operation)
-        for gate in cirq.single_qubit_matrix_to_gates(mat, self.atol):
-            yield gate(qubit)
-
-    def _decompose_two_qubit(self, operation: cirq.Operation) -> cirq.OP_TREE:
-        """Decomposes a two qubit gate into XXPow, YYPow, and ZZPow plus single qubit gates."""
-        mat = cirq.unitary(operation)
-        kak = cirq.kak_decomposition(mat, check_preconditions=False)
-
-        for qubit, mat in zip(operation.qubits, kak.single_qubit_operations_before):
-            gates = cirq.single_qubit_matrix_to_gates(mat, self.atol)
-            for gate in gates:
-                yield gate(qubit)
-
-        two_qubit_gates = [cirq.XX, cirq.YY, cirq.ZZ]
-        for two_qubit_gate, coefficient in zip(two_qubit_gates, kak.interaction_coefficients):
-            yield (two_qubit_gate ** (-coefficient * 2 / np.pi))(*operation.qubits)
-
-        for qubit, mat in zip(operation.qubits, kak.single_qubit_operations_after):
-            for gate in cirq.single_qubit_matrix_to_gates(mat, self.atol):
-                yield gate(qubit)
+        return operation in self.gateset

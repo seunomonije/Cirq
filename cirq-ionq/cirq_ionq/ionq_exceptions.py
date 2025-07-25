@@ -1,4 +1,5 @@
 # Copyright 2020 The Cirq Developers
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -12,6 +13,8 @@
 # limitations under the License.
 """Exceptions for the IonQ API."""
 
+from __future__ import annotations
+
 import requests
 
 
@@ -22,7 +25,7 @@ class IonQException(Exception):
         status_code: A http status code, if coming from an http response with a failing status.
     """
 
-    def __init__(self, message, status_code: int = None):
+    def __init__(self, message, status_code: int | None = None):
         super().__init__(f'Status code: {status_code}, Message: \'{message}\'')
         self.status_code = status_code
 
@@ -43,3 +46,21 @@ class IonQUnsuccessfulJobException(IonQException):
 
     def __init__(self, job_id: str, status: str):
         super().__init__(f'Job {job_id} was {status}.')
+
+
+class IonQSerializerMixedGatesetsException(Exception):
+    """An exception for IonQ serializer when attempting to run a batch of circuits
+    that do not have the same type of gates (either 'qis' or 'native' gates).
+    """
+
+    def __init__(self, message):
+        super().__init__(f"Message: '{message}'")
+
+
+class NotSupportedPauliexpParameters(Exception):
+    """An exception that may be thrown when trying to serialize a Cirq
+    PauliStringPhasorGate to IonQ `pauliexp` gate with unsupported parameters.
+    """
+
+    def __init__(self, message):
+        super().__init__(f"Message: '{message}'")

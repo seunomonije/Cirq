@@ -12,32 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional, TYPE_CHECKING
+from __future__ import annotations
 
 import warnings
+from typing import Any, cast, Sequence, TYPE_CHECKING
+
+import numpy as np
 import pandas as pd
 import sympy
 from matplotlib import pyplot as plt
-import numpy as np
-from scipy import optimize
 
-
-from cirq import circuits, ops, study, value
+from cirq import _import, circuits, ops, study, value
 from cirq._compat import proper_repr
 
 if TYPE_CHECKING:
     import cirq
 
+# We initialize optimize lazily, otherwise it slows global import speed.
+optimize = _import.LazyLoader("optimize", globals(), "scipy.optimize")
+
 
 def t1_decay(
-    sampler: 'cirq.Sampler',
+    sampler: cirq.Sampler,
     *,
-    qubit: 'cirq.Qid',
+    qubit: cirq.Qid,
     num_points: int,
-    max_delay: 'cirq.DURATION_LIKE',
-    min_delay: 'cirq.DURATION_LIKE' = None,
+    max_delay: cirq.DURATION_LIKE,
+    min_delay: cirq.DURATION_LIKE = None,
     repetitions: int = 1000,
-) -> 'cirq.experiments.T1DecayResult':
+) -> cirq.experiments.T1DecayResult:
     """Runs a t1 decay experiment.
 
     Initializes a qubit into the |1⟩ state, waits for a variable amount of time,
@@ -54,29 +57,36 @@ def t1_decay(
 
     Returns:
         A T1DecayResult object that stores and can plot the data.
+
+    Raises:
+        ValueError: If the supplied parameters are not valid: negative repetitions,
+            max delay less than min, or min delay less than 0.
     """
     min_delay_dur = value.Duration(min_delay)
     max_delay_dur = value.Duration(max_delay)
+    min_delay_nanos = min_delay_dur.total_nanos()
+    max_delay_nanos = max_delay_dur.total_nanos()
 
     if repetitions <= 0:
         raise ValueError('repetitions <= 0')
+    if isinstance(min_delay_nanos, sympy.Expr) or isinstance(max_delay_nanos, sympy.Expr):
+        raise ValueError('min_delay and max_delay cannot be sympy expressions.')
     if max_delay_dur < min_delay_dur:
         raise ValueError('max_delay < min_delay')
     if min_delay_dur < 0:
         raise ValueError('min_delay < 0')
+
     var = sympy.Symbol('delay_ns')
 
-    sweep = study.Linspace(
-        var,
-        start=min_delay_dur.total_nanos(),
-        stop=max_delay_dur.total_nanos(),
-        length=num_points,
+    if min_delay_nanos == 0:
+        min_delay_nanos = 0.4
+    sweep_vals_ns = np.unique(
+        np.round(np.logspace(np.log10(min_delay_nanos), np.log10(max_delay_nanos), num_points))
     )
+    sweep = study.Points(var, cast(Sequence[float], sweep_vals_ns))
 
     circuit = circuits.Circuit(
-        ops.X(qubit),
-        ops.wait(qubit, nanos=var),
-        ops.measure(qubit, key='output'),
+        ops.X(qubit), ops.wait(qubit, nanos=var), ops.measure(qubit, key='output')
     )
 
     results = sampler.sample(circuit, params=sweep, repetitions=repetitions)
@@ -114,8 +124,8 @@ class T1DecayResult:
     def constant(self) -> float:
         """The t1 decay constant."""
 
-        def exp_decay(x, t1):
-            return np.exp(-x / t1)
+        def exp_decay(x, t1, a, b):
+            return a * np.exp(-x / t1) + b
 
         xs = self._data['delay_ns']
         ts = self._data['true_count']
@@ -128,15 +138,15 @@ class T1DecayResult:
 
         # Fit to exponential decay to find the t1 constant
         try:
-            popt, _ = optimize.curve_fit(exp_decay, xs, probs, p0=[t1_guess])
-            t1 = popt[0]
+            self.popt, _ = optimize.curve_fit(exp_decay, xs, probs, p0=[t1_guess, 1.0, 0.0])
+            t1 = self.popt[0]
             return t1
         except RuntimeError:
             warnings.warn("Optimal parameters could not be found for curve fit", RuntimeWarning)
             return np.nan
 
     def plot(
-        self, ax: Optional[plt.Axes] = None, include_fit: bool = False, **plot_kwargs: Any
+        self, ax: plt.Axes | None = None, include_fit: bool = False, **plot_kwargs: Any
     ) -> plt.Axes:
         """Plots the excited state probability vs the amount of delay.
 
@@ -162,7 +172,9 @@ class T1DecayResult:
         ax.plot(xs, ts / (fs + ts), 'ro-', **plot_kwargs)
 
         if include_fit and not np.isnan(self.constant):
-            ax.plot(xs, np.exp(-xs / self.constant), label='curve fit')
+            t1 = self.constant
+            t1, a, b = self.popt
+            ax.plot(xs, a * np.exp(-xs / t1) + b, label='curve fit')
             plt.legend()
 
         ax.set_xlabel(r"Delay between initialization and measurement (nanoseconds)")

@@ -12,31 +12,87 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Set, TypeVar, TYPE_CHECKING
+from __future__ import annotations
 
 import abc
+import functools
+import weakref
+from typing import Any, Iterable, TYPE_CHECKING
 
 import numpy as np
+from typing_extensions import Self
 
 from cirq import ops, protocols
 
 if TYPE_CHECKING:
     import cirq
 
-TSelf = TypeVar('TSelf', bound='_BaseGridQid')  # type: ignore
 
-
-@functools.total_ordering  # type: ignore
+@functools.total_ordering
 class _BaseGridQid(ops.Qid):
     """The Base class for `GridQid` and `GridQubit`."""
 
-    def __init__(self, row: int, col: int):
-        self._row = row
-        self._col = col
+    _row: int
+    _col: int
+    _dimension: int
+    _comp_key: tuple[int, int] | None = None
+    _hash: int
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other) -> bool:
+        # Explicitly implemented for performance (vs delegating to Qid).
+        if isinstance(other, _BaseGridQid):
+            return self is other or (
+                self._row == other._row
+                and self._col == other._col
+                and self._dimension == other._dimension
+            )
+        return NotImplemented
+
+    def __ne__(self, other) -> bool:
+        # Explicitly implemented for performance (vs delegating to Qid).
+        if isinstance(other, _BaseGridQid):
+            return self is not other and (
+                self._row != other._row
+                or self._col != other._col
+                or self._dimension != other._dimension
+            )
+        return NotImplemented
+
+    def __lt__(self, other) -> bool:
+        # Explicitly implemented for performance (vs delegating to Qid).
+        if isinstance(other, _BaseGridQid):
+            k0, k1 = self._comparison_key(), other._comparison_key()
+            return k0 < k1 or (k0 == k1 and self._dimension < other._dimension)
+        return super().__lt__(other)
+
+    def __le__(self, other) -> bool:
+        # Explicitly implemented for performance (vs delegating to Qid).
+        if isinstance(other, _BaseGridQid):
+            k0, k1 = self._comparison_key(), other._comparison_key()
+            return k0 < k1 or (k0 == k1 and self._dimension <= other._dimension)
+        return super().__le__(other)
+
+    def __ge__(self, other) -> bool:
+        # Explicitly implemented for performance (vs delegating to Qid).
+        if isinstance(other, _BaseGridQid):
+            k0, k1 = self._comparison_key(), other._comparison_key()
+            return k0 > k1 or (k0 == k1 and self._dimension >= other._dimension)
+        return super().__ge__(other)
+
+    def __gt__(self, other) -> bool:
+        # Explicitly implemented for performance (vs delegating to Qid).
+        if isinstance(other, _BaseGridQid):
+            k0, k1 = self._comparison_key(), other._comparison_key()
+            return k0 > k1 or (k0 == k1 and self._dimension > other._dimension)
+        return super().__gt__(other)
 
     def _comparison_key(self):
-        return self._row, self._col
+        if self._comp_key is None:
+            self._comp_key = self._row, self._col
+        return self._comp_key
 
     @property
     def row(self) -> int:
@@ -46,18 +102,30 @@ class _BaseGridQid(ops.Qid):
     def col(self) -> int:
         return self._col
 
-    def with_dimension(self, dimension: int) -> 'GridQid':
-        return GridQid(self.row, self.col, dimension=dimension)
+    @property
+    def dimension(self) -> int:
+        return self._dimension
 
-    def is_adjacent(self, other: 'cirq.Qid') -> bool:
+    def with_dimension(self, dimension: int) -> GridQid:
+        return GridQid(self._row, self._col, dimension=dimension)
+
+    def is_adjacent(self, other: cirq.Qid) -> bool:
         """Determines if two qubits are adjacent qubits."""
         return (
             isinstance(other, GridQubit)
-            and abs(self.row - other.row) + abs(self.col - other.col) == 1
+            and abs(self._row - other._row) + abs(self._col - other._col) == 1
         )
 
-    def neighbors(self, qids: Optional[Iterable[ops.Qid]] = None) -> Set['_BaseGridQid']:
-        """Returns qubits that are potential neighbors to this GridQid
+    def neighbors(self, qids: Iterable[ops.Qid] | None = None) -> set[_BaseGridQid]:
+        """Returns qubits that are potential neighbors to this GridQid.
+
+        Note that this returns _potential_ neighbors.  That is, if no arguments
+        are given, this returns the qubits above, below, to the right and left of
+        the Qid in the grid.  It does not take into account any hardware device
+        layout.
+
+        If you want to take into account the device layout, you must pass in the
+        device's qubit set as the `qids` parameter.
 
         Args:
             qids: optional Iterable of qubits to constrain neighbors to.
@@ -69,20 +137,20 @@ class _BaseGridQid(ops.Qid):
         return neighbors
 
     @abc.abstractmethod
-    def _with_row_col(self: TSelf, row: int, col: int) -> TSelf:
+    def _with_row_col(self, row: int, col: int) -> Self:
         """Returns a qid with the same type but a different coordinate."""
 
     def __complex__(self) -> complex:
-        return self.col + 1j * self.row
+        return self._col + 1j * self._row
 
-    def __add__(self: TSelf, other: Tuple[int, int]) -> 'TSelf':
+    def __add__(self, other: tuple[int, int] | Self) -> Self:
         if isinstance(other, _BaseGridQid):
             if self.dimension != other.dimension:
                 raise TypeError(
                     "Can only add GridQids with identical dimension. "
                     f"Got {self.dimension} and {other.dimension}"
                 )
-            return self._with_row_col(row=self.row + other.row, col=self.col + other.col)
+            return self._with_row_col(row=self._row + other._row, col=self._col + other._col)
         if not (
             isinstance(other, (tuple, np.ndarray))
             and len(other) == 2
@@ -92,16 +160,16 @@ class _BaseGridQid(ops.Qid):
                 'Can only add integer tuples of length 2 to '
                 f'{type(self).__name__}. Instead was {other}'
             )
-        return self._with_row_col(row=self.row + other[0], col=self.col + other[1])
+        return self._with_row_col(row=self._row + other[0], col=self._col + other[1])
 
-    def __sub__(self: TSelf, other: Tuple[int, int]) -> 'TSelf':
+    def __sub__(self, other: tuple[int, int] | Self) -> Self:
         if isinstance(other, _BaseGridQid):
             if self.dimension != other.dimension:
                 raise TypeError(
                     "Can only subtract GridQids with identical dimension. "
                     f"Got {self.dimension} and {other.dimension}"
                 )
-            return self._with_row_col(row=self.row - other.row, col=self.col - other.col)
+            return self._with_row_col(row=self._row - other._row, col=self._col - other._col)
         if not (
             isinstance(other, (tuple, np.ndarray))
             and len(other) == 2
@@ -111,16 +179,16 @@ class _BaseGridQid(ops.Qid):
                 "Can only subtract integer tuples of length 2 to "
                 f"{type(self).__name__}. Instead was {other}"
             )
-        return self._with_row_col(row=self.row - other[0], col=self.col - other[1])
+        return self._with_row_col(row=self._row - other[0], col=self._col - other[1])
 
-    def __radd__(self: TSelf, other: Tuple[int, int]) -> 'TSelf':
+    def __radd__(self, other: tuple[int, int]) -> Self:
         return self + other
 
-    def __rsub__(self: TSelf, other: Tuple[int, int]) -> 'TSelf':
+    def __rsub__(self, other: tuple[int, int]) -> Self:
         return -self + other
 
-    def __neg__(self: TSelf) -> 'TSelf':
-        return self._with_row_col(row=-self.row, col=-self.col)
+    def __neg__(self) -> Self:
+        return self._with_row_col(row=-self._row, col=-self._col)
 
 
 class GridQid(_BaseGridQid):
@@ -134,18 +202,20 @@ class GridQid(_BaseGridQid):
     New GridQid can be constructed by adding or subtracting tuples or numpy
     arrays
 
-        >>> cirq.GridQid(2, 3, dimension=2) + (3, 1)
-        cirq.GridQid(5, 4, dimension=2)
-
-        >>> cirq.GridQid(2, 3, dimension=2) - (1, 2)
-        cirq.GridQid(1, 1, dimension=2)
-
-        >>> cirq.GridQid(2, 3, dimension=2) + np.array([3, 1], dtype=int)
-        cirq.GridQid(5, 4, dimension=2)
+    >>> cirq.GridQid(2, 3, dimension=2) + (3, 1)
+    cirq.GridQid(5, 4, dimension=2)
+    >>> cirq.GridQid(2, 3, dimension=2) - (1, 2)
+    cirq.GridQid(1, 1, dimension=2)
+    >>> cirq.GridQid(2, 3, dimension=2) + np.array([3, 1], dtype=int)
+    cirq.GridQid(5, 4, dimension=2)
     """
 
-    def __init__(self, row: int, col: int, *, dimension: int) -> None:
-        """Initializes a grid qid at the given row, col coordinate
+    # Cache of existing GridQid instances, returned by __new__ if available.
+    # Holds weak references so instances can still be garbage collected.
+    _cache = weakref.WeakValueDictionary[tuple[int, int, int], 'cirq.GridQid']()
+
+    def __new__(cls, row: int, col: int, *, dimension: int) -> cirq.GridQid:
+        """Creates a grid qid at the given row, col coordinate
 
         Args:
             row: the row coordinate
@@ -153,19 +223,32 @@ class GridQid(_BaseGridQid):
             dimension: The dimension of the qid's Hilbert space, i.e.
                 the number of quantum levels.
         """
-        super().__init__(row, col)
-        self._dimension = dimension
-        self.validate_dimension(dimension)
+        dimension = int(dimension)
+        key = (row, col, dimension)
+        inst = cls._cache.get(key)
+        if inst is None:
+            cls.validate_dimension(dimension)
+            inst = super().__new__(cls)
+            inst._row = row
+            inst._col = col
+            inst._dimension = dimension
+            inst._hash = ((dimension - 2) * 1_000_003 + hash(col)) * 1_000_003 + hash(row)
+            cls._cache[key] = inst
+        return inst
 
-    @property
-    def dimension(self):
-        return self._dimension
+    def __getnewargs_ex__(self):
+        """Returns a tuple of (args, kwargs) to pass to __new__ when unpickling."""
+        return (self._row, self._col), {"dimension": self._dimension}
 
-    def _with_row_col(self, row: int, col: int) -> 'GridQid':
-        return GridQid(row, col, dimension=self.dimension)
+    # avoid pickling the _hash value, attributes are already stored with __getnewargs_ex__
+    def __getstate__(self) -> dict[str, Any]:
+        return {}
+
+    def _with_row_col(self, row: int, col: int) -> GridQid:
+        return GridQid(row, col, dimension=self._dimension)
 
     @staticmethod
-    def square(diameter: int, top: int = 0, left: int = 0, *, dimension: int) -> List['GridQid']:
+    def square(diameter: int, top: int = 0, left: int = 0, *, dimension: int) -> list[GridQid]:
         """Returns a square of GridQid.
 
         Args:
@@ -181,9 +264,7 @@ class GridQid(_BaseGridQid):
         return GridQid.rect(diameter, diameter, top=top, left=left, dimension=dimension)
 
     @staticmethod
-    def rect(
-        rows: int, cols: int, top: int = 0, left: int = 0, *, dimension: int
-    ) -> List['GridQid']:
+    def rect(rows: int, cols: int, top: int = 0, left: int = 0, *, dimension: int) -> list[GridQid]:
         """Returns a rectangle of GridQid.
 
         Args:
@@ -204,20 +285,26 @@ class GridQid(_BaseGridQid):
         ]
 
     @staticmethod
-    def from_diagram(diagram: str, dimension: int) -> List['GridQid']:
-        """Parse ASCII art device layout into info about qids and
-        connectivity. As an example, the below diagram will create a list of
-        GridQid in a pyramid structure.
+    def from_diagram(diagram: str, dimension: int) -> list[GridQid]:
+        """Parse ASCII art device layout into a device.
+
+        As an example, the below diagram will create a list of GridQid in a
+        pyramid structure.
+
+
+        ```
         ---A---
         --AAA--
         -AAAAA-
         AAAAAAA
+        ```
 
-        You can use any character other than a hyphen to mark a qid. As an
-        example, the qids for the Bristlecone device could be represented by
-        the below diagram. This produces a diamond-shaped grid of qids, and
-        qids with the same letter correspond to the same readout line.
+        You can use any character other than a hyphen, period or space to mark a
+        qid. As an example, the qids for a Bristlecone device could be
+        represented by the below diagram. This produces a diamond-shaped grid of
+        qids, and qids with the same letter correspond to the same readout line.
 
+        ```
         .....AB.....
         ....ABCD....
         ...ABCDEF...
@@ -229,18 +316,22 @@ class GridQid(_BaseGridQid):
         ...GHIJKL...
         ....IJKL....
         .....KL.....
+        ```
 
         Args:
             diagram: String representing the qid layout. Each line represents
                 a row. Alphanumeric characters are assigned as qid.
                 Dots ('.'), dashes ('-'), and spaces (' ') are treated as
                 empty locations in the grid. If diagram has characters other
-                than alphanumerics, spacers, and newlines ('\n'), an error will
+                than alphanumerics, spacers, and newlines ('\\n'), an error will
                 be thrown. The top-left corner of the diagram will be have
-                coordinate (0,0).
+                coordinate (0, 0).
+
+            dimension: The dimension of the qubits in the `cirq.GridQid`s used
+                in this construction.
 
         Returns:
-            A list of GridQid corresponding to qids in the provided diagram
+            A list of `cirq.GridQid`s corresponding to qids in the provided diagram
 
         Raises:
             ValueError: If the input string contains an invalid character.
@@ -249,12 +340,17 @@ class GridQid(_BaseGridQid):
         return [GridQid(*c, dimension=dimension) for c in coords]
 
     def __repr__(self) -> str:
-        return f"cirq.GridQid({self.row}, {self.col}, dimension={self.dimension})"
+        return f"cirq.GridQid({self._row}, {self._col}, dimension={self._dimension})"
 
     def __str__(self) -> str:
-        return f"({self.row}, {self.col}) (d={self.dimension})"
+        return f"q({self._row}, {self._col}) (d={self._dimension})"
 
-    def _json_dict_(self) -> Dict[str, Any]:
+    def _circuit_diagram_info_(self, args: cirq.CircuitDiagramInfoArgs) -> cirq.CircuitDiagramInfo:
+        return protocols.CircuitDiagramInfo(
+            wire_symbols=(f"({self._row}, {self._col}) (d={self._dimension})",)
+        )
+
+    def _json_dict_(self) -> dict[str, Any]:
         return protocols.obj_to_dict_helper(self, ['row', 'col', 'dimension'])
 
 
@@ -267,60 +363,50 @@ class GridQubit(_BaseGridQid):
 
     New GridQubits can be constructed by adding or subtracting tuples
 
-        >>> cirq.GridQubit(2, 3) + (3, 1)
-        cirq.GridQubit(5, 4)
-
-        >>> cirq.GridQubit(2, 3) - (1, 2)
-        cirq.GridQubit(1, 1)
-
-        >>> cirq.GridQubit(2, 3,) + np.array([3, 1], dtype=int)
-        cirq.GridQubit(5, 4)
+    >>> cirq.GridQubit(2, 3) + (3, 1)
+    cirq.GridQubit(5, 4)
+    >>> cirq.GridQubit(2, 3) - (1, 2)
+    cirq.GridQubit(1, 1)
+    >>> cirq.GridQubit(2, 3,) + np.array([3, 1], dtype=int)
+    cirq.GridQubit(5, 4)
     """
 
-    def __init__(self, row: int, col: int):
-        super().__init__(row, col)
-        self._hash = super().__hash__()
+    _dimension = 2
 
-    def __getstate__(self):
-        # Don't save hash when pickling; see #3777.
-        state = self.__dict__.copy()
-        del state['_hash']
-        return state
+    # Cache of existing GridQubit instances, returned by __new__ if available.
+    # Holds weak references so instances can still be garbage collected.
+    _cache = weakref.WeakValueDictionary[tuple[int, int], 'cirq.GridQubit']()
 
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        self._hash = super().__hash__()
+    def __new__(cls, row: int, col: int) -> cirq.GridQubit:
+        """Creates a grid qubit at the given row, col coordinate
 
-    def __hash__(self):
-        # Explicitly cached for performance (vs delegating to Qid).
-        return self._hash
+        Args:
+            row: the row coordinate
+            col: the column coordinate
+        """
+        key = (row, col)
+        inst = cls._cache.get(key)
+        if inst is None:
+            inst = super().__new__(cls)
+            inst._row = row
+            inst._col = col
+            inst._hash = hash(col) * 1_000_003 + hash(row)
+            cls._cache[key] = inst
+        return inst
 
-    def __eq__(self, other):
-        # Explicitly implemented for performance (vs delegating to Qid).
-        if isinstance(other, GridQubit):
-            return self.row == other.row and self.col == other.col
-        return NotImplemented
+    def __getnewargs__(self):
+        """Returns a tuple of args to pass to __new__ when unpickling."""
+        return (self._row, self._col)
 
-    def __ne__(self, other):
-        # Explicitly implemented for performance (vs delegating to Qid).
-        if isinstance(other, GridQubit):
-            return self.row != other.row or self.col != other.col
-        return NotImplemented
+    # avoid pickling the _hash value, attributes are already stored with __getnewargs__
+    def __getstate__(self) -> dict[str, Any]:
+        return {}
 
-    @property
-    def dimension(self) -> int:
-        return 2
-
-    def _with_row_col(self, row: int, col: int):
+    def _with_row_col(self, row: int, col: int) -> GridQubit:
         return GridQubit(row, col)
 
-    def _cmp_tuple(self):
-        cls = GridQid if type(self) is GridQubit else type(self)
-        # Must be same as Qid._cmp_tuple but with cls in place of type(self).
-        return (cls.__name__, repr(cls), self._comparison_key(), self.dimension)
-
     @staticmethod
-    def square(diameter: int, top: int = 0, left: int = 0) -> List['GridQubit']:
+    def square(diameter: int, top: int = 0, left: int = 0) -> list[GridQubit]:
         """Returns a square of GridQubits.
 
         Args:
@@ -334,7 +420,7 @@ class GridQubit(_BaseGridQid):
         return GridQubit.rect(diameter, diameter, top=top, left=left)
 
     @staticmethod
-    def rect(rows: int, cols: int, top: int = 0, left: int = 0) -> List['GridQubit']:
+    def rect(rows: int, cols: int, top: int = 0, left: int = 0) -> list[GridQubit]:
         """Returns a rectangle of GridQubits.
 
         Args:
@@ -353,20 +439,26 @@ class GridQubit(_BaseGridQid):
         ]
 
     @staticmethod
-    def from_diagram(diagram: str) -> List['GridQubit']:
-        """Parse ASCII art device layout into info about qubits and
-        connectivity. As an example, the below diagram will create a list of
+    def from_diagram(diagram: str) -> list[GridQubit]:
+        """Parse ASCII art into device layout info.
+
+        As an example, the below diagram will create a list of
         GridQubit in a pyramid structure.
+
+        ```
         ---A---
         --AAA--
         -AAAAA-
         AAAAAAA
+        ```
 
-        You can use any character other than a hyphen to mark a qubit. As an
-        example, the qubits for the Bristlecone device could be represented by
-        the below diagram. This produces a diamond-shaped grid of qids, and
-        qids with the same letter correspond to the same readout line.
+        You can use any character other than a hyphen, period or space to mark
+        a qubit. As an example, the qubits for a Bristlecone device could be
+        represented by the below diagram. This produces a diamond-shaped grid
+        of qids, and qids with the same letter correspond to the same readout
+        line.
 
+        ```
         .....AB.....
         ....ABCD....
         ...ABCDEF...
@@ -378,13 +470,14 @@ class GridQubit(_BaseGridQid):
         ...GHIJKL...
         ....IJKL....
         .....KL.....
+        ```
 
         Args:
             diagram: String representing the qubit layout. Each line represents
                 a row. Alphanumeric characters are assigned as qid.
                 Dots ('.'), dashes ('-'), and spaces (' ') are treated as
                 empty locations in the grid. If diagram has characters other
-                than alphanumerics, spacers, and newlines ('\n'), an error will
+                than alphanumerics, spacers, and newlines ('\\n'), an error will
                 be thrown. The top-left corner of the diagram will be have
                 coordinate (0,0).
 
@@ -398,16 +491,19 @@ class GridQubit(_BaseGridQid):
         return [GridQubit(*c) for c in coords]
 
     def __repr__(self) -> str:
-        return f"cirq.GridQubit({self.row}, {self.col})"
+        return f"cirq.GridQubit({self._row}, {self._col})"
 
     def __str__(self) -> str:
-        return f"({self.row}, {self.col})"
+        return f"q({self._row}, {self._col})"
 
-    def _json_dict_(self) -> Dict[str, Any]:
+    def _circuit_diagram_info_(self, args: cirq.CircuitDiagramInfoArgs) -> cirq.CircuitDiagramInfo:
+        return protocols.CircuitDiagramInfo(wire_symbols=(f"({self._row}, {self._col})",))
+
+    def _json_dict_(self) -> dict[str, Any]:
         return protocols.obj_to_dict_helper(self, ['row', 'col'])
 
 
-def _ascii_diagram_to_coords(diagram: str) -> List[Tuple[int, int]]:
+def _ascii_diagram_to_coords(diagram: str) -> list[tuple[int, int]]:
     """Parse ASCII art device layout into info about qids coordinates
 
     Args:

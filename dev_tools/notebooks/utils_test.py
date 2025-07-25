@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import filecmp
 import os
 import shutil
 import tempfile
@@ -34,61 +37,61 @@ def write_test_data(ipynb_txt, tst_txt):
     return directory, ipynb_path
 
 
-def test_rewrite_notebook():
+def test_rewrite_notebook() -> None:
     directory, ipynb_path = write_test_data('d = 5\nd = 4', 'd = 5->d = 3')
 
-    descriptor, path = dt.rewrite_notebook(ipynb_path)
+    path = dt.rewrite_notebook(ipynb_path)
 
     assert path != ipynb_path
     with open(path, 'r') as f:
         rewritten = f.read()
         assert rewritten == 'd = 3\nd = 4'
 
-    os.close(descriptor)
+    os.remove(path)
     shutil.rmtree(directory)
 
 
-def test_rewrite_notebook_multiple():
+def test_rewrite_notebook_multiple() -> None:
     directory, ipynb_path = write_test_data('d = 5\nd = 4', 'd = 5->d = 3\nd = 4->d = 1')
 
-    descriptor, path = dt.rewrite_notebook(ipynb_path)
+    path = dt.rewrite_notebook(ipynb_path)
 
     with open(path, 'r') as f:
         rewritten = f.read()
         assert rewritten == 'd = 3\nd = 1'
 
-    os.close(descriptor)
+    os.remove(path)
     shutil.rmtree(directory)
 
 
-def test_rewrite_notebook_ignore_non_seperator_lines():
+def test_rewrite_notebook_ignore_non_seperator_lines() -> None:
     directory, ipynb_path = write_test_data('d = 5\nd = 4', 'd = 5->d = 3\n# comment')
 
-    descriptor, path = dt.rewrite_notebook(ipynb_path)
+    path = dt.rewrite_notebook(ipynb_path)
 
     with open(path, 'r') as f:
         rewritten = f.read()
         assert rewritten == 'd = 3\nd = 4'
 
-    os.close(descriptor)
+    os.remove(path)
     shutil.rmtree(directory)
 
 
-def test_rewrite_notebook_no_tst_file():
+def test_rewrite_notebook_no_tst_file() -> None:
     directory = tempfile.mkdtemp()
     ipynb_path = os.path.join(directory, 'test.ipynb')
     with open(ipynb_path, 'w') as f:
         f.write('d = 5\nd = 4')
 
-    descriptor, path = dt.rewrite_notebook(ipynb_path)
+    path = dt.rewrite_notebook(ipynb_path)
+    assert path != ipynb_path
+    assert filecmp.cmp(path, ipynb_path)
 
-    assert descriptor is None
-    assert path == ipynb_path
-
+    os.remove(path)
     shutil.rmtree(directory)
 
 
-def test_rewrite_notebook_extra_seperator():
+def test_rewrite_notebook_extra_seperator() -> None:
     directory, ipynb_path = write_test_data('d = 5\nd = 4', 'd = 5->d = 3->d = 1')
 
     with pytest.raises(AssertionError, match='only contain one'):
@@ -97,7 +100,7 @@ def test_rewrite_notebook_extra_seperator():
     shutil.rmtree(directory)
 
 
-def test_rewrite_notebook_unused_patterns():
+def test_rewrite_notebook_unused_patterns() -> None:
     directory, ipynb_path = write_test_data('d = 5\nd = 4', 'd = 2->d = 3')
 
     with pytest.raises(AssertionError, match='re.compile'):

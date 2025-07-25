@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 # Copyright 2019 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,8 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Runs python doctest on all python source files in the cirq directory.
+
+"""Runs python doctest on all python source files in the cirq directory.
 
 See also:
     https://docs.python.org/3/library/doctest.html
@@ -26,28 +25,40 @@ The -q argument suppresses all output except the final result line and any error
 messages.
 """
 
-from typing import Any, Dict, Iterable, List, Tuple
+from __future__ import annotations
 
-import sys
+import doctest
 import glob
 import importlib.util
-import doctest
+import sys
+import warnings
+from types import ModuleType
+from typing import Any, Iterable, Sequence
 
 from dev_tools import shell_tools
 from dev_tools.output_capture import OutputCapture
 
-# Bug workaround: https://github.com/python/mypy/issues/1498
-ModuleType = Any
+# The contrib module imports quimb. Quimb a dependency on the package named cotengra. The latter
+# has optional dependencies on optimization packages; unfortunately, it also has hardwired
+# warnings that it prints if the user doesn't load at least one of the optional packages. The
+# warnings are confusing in the context of testing, so the following ignores them.
+warnings.filterwarnings("ignore", category=UserWarning, module="cotengra.hyperoptimizers.hyper")
 
 
 class Doctest:
-    def __init__(self, file_name: str, mod: ModuleType, test_globals: Dict[str, Any]):
+    def __init__(self, file_name: str, mod: ModuleType, test_globals: dict[str, Any]):
         self.file_name = file_name
         self.mod = mod
         self.test_globals = test_globals
 
     def run(self) -> doctest.TestResults:
-        return doctest.testmod(self.mod, globs=self.test_globals, report=False, verbose=False)
+        return doctest.testmod(
+            self.mod,
+            globs=self.test_globals,
+            report=False,
+            verbose=False,
+            optionflags=doctest.ELLIPSIS,
+        )
 
 
 def run_tests(
@@ -93,7 +104,7 @@ def load_tests(
     include_modules: bool = True,
     include_local: bool = True,
     quiet: bool = True,
-) -> List[Doctest]:
+) -> list[Doctest]:
     """Prepares tests for code snippets from docstrings found in each file.
 
     Args:
@@ -103,6 +114,7 @@ def load_tests(
         include_local: If True, the file under test is imported as a python
             module (only if the file extension is .py) and all globals defined
             in the file may be used by the snippets.
+        quiet: If True, suppress console output.
 
     Returns: A list of `Doctest` objects.
     """
@@ -111,12 +123,22 @@ def load_tests(
     else:
         try_print = lambda *args, **kwargs: None
     if include_modules:
-        import cirq
         import numpy
-        import sympy
         import pandas
+        import sympy
 
-        base_globals = {'cirq': cirq, 'np': numpy, 'sympy': sympy, 'pd': pandas}
+        import cirq
+        import cirq_google
+
+        base_globals = {
+            'Iterable': Iterable,
+            'Sequence': Sequence,
+            'cirq': cirq,
+            'cirq_google': cirq_google,
+            'np': numpy,
+            'pd': pandas,
+            'sympy': sympy,
+        }
     else:
         base_globals = {}
 
@@ -128,7 +150,7 @@ def load_tests(
         glob = make_globals(mod)
         return Doctest(file_path, mod, glob)
 
-    def make_globals(mod: ModuleType) -> Dict[str, Any]:
+    def make_globals(mod: ModuleType) -> dict[str, Any]:
         if include_local:
             glob = dict(mod.__dict__)
             glob.update(base_globals)
@@ -143,11 +165,12 @@ def load_tests(
 
 def exec_tests(
     tests: Iterable[Doctest], quiet: bool = True
-) -> Tuple[doctest.TestResults, List[str]]:
+) -> tuple[doctest.TestResults, list[str]]:
     """Runs a list of `Doctest`s and collects and returns any error messages.
 
     Args:
         tests: The tests to run
+        quiet: If True, suppress console output.
 
     Returns: A tuple containing the results (# failures, # attempts) and a list
         of the error outputs from each failing test.
@@ -169,9 +192,8 @@ def exec_tests(
         if r.failed != 0:
             try_print('F', end='', flush=True)
             error = shell_tools.highlight(
-                '{}\n{} failed, {} passed, {} total\n'.format(
-                    test.file_name, r.failed, r.attempted - r.failed, r.attempted
-                ),
+                f'{test.file_name}\n'
+                f'{r.failed} failed, {r.attempted - r.failed} passed, {r.attempted} total\n',
                 shell_tools.RED,
             )
             error += out.content()
@@ -192,10 +214,15 @@ def import_file(file_path: str) -> ModuleType:
         file_path: The file to import.
 
     Returns: The imported module.
+
+    Raises:
+        ValueError: if unable to import the given file.
     """
     mod_name = 'cirq_doctest_module'
     # Find and create the module
     spec = importlib.util.spec_from_file_location(mod_name, file_path)
+    if spec is None:
+        raise ValueError(f'Unable to find module spec: mod_name={mod_name}, file_path={file_path}')
     mod = importlib.util.module_from_spec(spec)
     # Run the code in the module (but not with __name__ == '__main__')
     sys.modules[mod_name] = mod
@@ -208,9 +235,18 @@ def import_file(file_path: str) -> ModuleType:
 def main():
     quiet = len(sys.argv) >= 2 and sys.argv[1] == '-q'
 
-    file_names = glob.glob('cirq/**/*.py', recursive=True)
-    # Remove the engine client code.
-    file_names = [f for f in file_names if not f.startswith('cirq/google/engine/client/')]
+    file_names = glob.glob('cirq**/cirq**/**/*.py', recursive=True)
+    assert file_names
+    excluded = [
+        'cirq-google/cirq_google/api/',
+        'cirq-google/cirq_google/cloud/',
+        'cirq-web/cirq_web/node_modules/',
+    ]
+    file_names = [
+        f
+        for f in file_names
+        if not (any(f.startswith(x) for x in excluded) or f.endswith("_test.py"))
+    ]
     failed, attempted = run_tests(
         file_names, include_modules=True, include_local=False, quiet=quiet
     )
@@ -218,9 +254,7 @@ def main():
     if failed != 0:
         print(
             shell_tools.highlight(
-                'Failed: {} failed, {} passed, {} total'.format(
-                    failed, attempted - failed, attempted
-                ),
+                f'Failed: {failed} failed, {attempted - failed} passed, {attempted} total',
                 shell_tools.RED,
             )
         )

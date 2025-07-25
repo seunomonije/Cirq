@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
+from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import cirq
 
@@ -24,7 +25,7 @@ class GoodPhaser:
         self.e = e
 
     def _unitary_(self):
-        return np.array([[0, 1j ** -self.e], [1j ** self.e, 0]])
+        return np.array([[0, 1j**-self.e], [1j**self.e, 0]])
 
     def _phase_by_(self, phase_turns: float, qubit_index: int):
         return GoodPhaser(self.e + phase_turns * 4)
@@ -41,13 +42,7 @@ class GoodQuditPhaser:
         return (3,)
 
     def _unitary_(self):
-        return np.array(
-            [
-                [0, 1j ** -self.e, 0],
-                [0, 0, 1j ** self.e],
-                [1, 0, 0],
-            ]
-        )
+        return np.array([[0, 1j**-self.e, 0], [0, 0, 1j**self.e], [1, 0, 0]])
 
     def _phase_by_(self, phase_turns: float, qubit_index: int):
         return GoodQuditPhaser(self.e + phase_turns * 4)
@@ -61,7 +56,7 @@ class BadPhaser:
         self.e = e
 
     def _unitary_(self):
-        return np.array([[0, 1j ** -(self.e * 2)], [1j ** self.e, 0]])
+        return np.array([[0, 1j ** -(self.e * 2)], [1j**self.e, 0]])
 
     def _phase_by_(self, phase_turns: float, qubit_index: int):
         return BadPhaser(self.e + phase_turns * 4)
@@ -96,7 +91,7 @@ class SemiBadPhaser:
         return SemiBadPhaser([resolver.value_of(val, recursive) for val in self.e])
 
 
-def test_assert_phase_by_is_consistent_with_unitary():
+def test_assert_phase_by_is_consistent_with_unitary() -> None:
     cirq.testing.assert_phase_by_is_consistent_with_unitary(GoodPhaser(0.5))
 
     cirq.testing.assert_phase_by_is_consistent_with_unitary(GoodQuditPhaser(0.5))

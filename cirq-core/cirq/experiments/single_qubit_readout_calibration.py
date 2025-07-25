@@ -12,20 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, Iterable, TYPE_CHECKING
+"""Single qubit readout experiments using parallel or isolated statistics."""
+
+from __future__ import annotations
 
 import dataclasses
 import time
+from typing import Any, cast, Iterable, TYPE_CHECKING
 
+import matplotlib.pyplot as plt
 import numpy as np
+import sympy
 
-from cirq import circuits, ops
+import cirq.vis.heatmap as cirq_heatmap
+import cirq.vis.histogram as cirq_histogram
+from cirq import circuits, ops, study
+from cirq.devices import grid_qubit
 
 if TYPE_CHECKING:
     import cirq
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class SingleQubitReadoutCalibrationResult:
     """Result of estimating single qubit readout error.
 
@@ -39,19 +47,148 @@ class SingleQubitReadoutCalibrationResult:
         timestamp: The time the data was taken, in seconds since the epoch.
     """
 
-    zero_state_errors: Dict['cirq.Qid', float]
-    one_state_errors: Dict['cirq.Qid', float]
+    zero_state_errors: dict[cirq.Qid, float]
+    one_state_errors: dict[cirq.Qid, float]
     repetitions: int
     timestamp: float
 
-    def _json_dict_(self) -> Dict[str, Any]:
+    def _json_dict_(self) -> dict[str, Any]:
         return {
-            'cirq_type': self.__class__.__name__,
             'zero_state_errors': list(self.zero_state_errors.items()),
             'one_state_errors': list(self.one_state_errors.items()),
             'repetitions': self.repetitions,
             'timestamp': self.timestamp,
         }
+
+    def plot_heatmap(
+        self,
+        axs: tuple[plt.Axes, plt.Axes] | None = None,
+        annotation_format: str = '0.1%',
+        **plot_kwargs: Any,
+    ) -> tuple[plt.Axes, plt.Axes]:
+        """Plot a heatmap of the readout errors. If qubits are not cirq.GridQubits, throws an error.
+
+        Args:
+            axs: a tuple of the plt.Axes to plot on. If not given, a new figure is created,
+                plotted on, and shown.
+            annotation_format: The format string for the numbers in the heatmap.
+            **plot_kwargs: Arguments to be passed to 'cirq.Heatmap.plot()'.
+        Returns:
+            The two plt.Axes containing the plot.
+
+        Raises:
+            ValueError: axs does not contain two plt.Axes
+            TypeError: qubits are not cirq.GridQubits
+        """
+
+        if axs is None:
+            _, axs_v = plt.subplots(1, 2, dpi=200, facecolor='white', figsize=(12, 4))
+            axs_v = cast(np.ndarray, axs_v)
+            axs = cast(tuple[plt.Axes, plt.Axes], (axs_v[0], axs_v[1]))
+        else:
+            if (
+                not isinstance(axs, (tuple, list, np.ndarray))
+                or len(axs) != 2
+                or type(axs[0]) != plt.Axes
+                or type(axs[1]) != plt.Axes
+            ):  # pragma: no cover
+                raise ValueError('axs should be a length-2 tuple of plt.Axes')  # pragma: no cover
+        for ax, title, data in zip(
+            axs,
+            ['$|0\\rangle$ errors', '$|1\\rangle$ errors'],
+            [self.zero_state_errors, self.one_state_errors],
+        ):
+            data_with_grid_qubit_keys = {}
+            for qubit in data:
+                if type(qubit) != grid_qubit.GridQubit:
+                    raise TypeError(f'{qubit} must be of type cirq.GridQubit')  # pragma: no cover
+                data_with_grid_qubit_keys[qubit] = data[qubit]  # just for typecheck
+            _, _ = cirq_heatmap.Heatmap(data_with_grid_qubit_keys).plot(
+                ax, annotation_format=annotation_format, title=title, **plot_kwargs
+            )
+        return axs[0], axs[1]
+
+    def plot_integrated_histogram(
+        self,
+        ax: plt.Axes | None = None,
+        cdf_on_x: bool = False,
+        axis_label: str = 'Readout error rate',
+        semilog: bool = True,
+        median_line: bool = True,
+        median_label: str | None = 'median',
+        mean_line: bool = False,
+        mean_label: str | None = 'mean',
+        show_zero: bool = False,
+        title: str | None = None,
+        **kwargs,
+    ) -> plt.Axes:
+        """Plot the readout errors using cirq.integrated_histogram().
+
+        Args:
+            ax: The axis to plot on. If None, we generate one.
+            cdf_on_x: If True, flip the axes compared the above example.
+            axis_label: Label for x axis (y-axis if cdf_on_x is True).
+            semilog: If True, force the x-axis to be logarithmic.
+            median_line: If True, draw a vertical line on the median value.
+            median_label: If drawing median line, optional label for it.
+            mean_line: If True, draw a vertical line on the mean value.
+            mean_label: If drawing mean line, optional label for it.
+            title: Title of the plot. If None, we assign "N={len(data)}".
+            show_zero: If True, moves the step plot up by one unit by prepending 0
+                to the data.
+            **kwargs: Kwargs to forward to `ax.step()`. Some examples are
+                color: Color of the line.
+                linestyle: Linestyle to use for the plot.
+                lw: linewidth for integrated histogram.
+                ms: marker size for a histogram trace.
+        Returns:
+            The axis that was plotted on.
+        """
+
+        ax = cirq_histogram.integrated_histogram(
+            data=self.zero_state_errors,
+            ax=ax,
+            cdf_on_x=cdf_on_x,
+            semilog=semilog,
+            median_line=median_line,
+            median_label=median_label,
+            mean_line=mean_line,
+            mean_label=mean_label,
+            show_zero=show_zero,
+            color='C0',
+            label='$|0\\rangle$ errors',
+            **kwargs,
+        )
+        ax = cirq_histogram.integrated_histogram(
+            data=self.one_state_errors,
+            ax=ax,
+            cdf_on_x=cdf_on_x,
+            axis_label=axis_label,
+            semilog=semilog,
+            median_line=median_line,
+            median_label=median_label,
+            mean_line=mean_line,
+            mean_label=mean_label,
+            show_zero=show_zero,
+            title=title,
+            color='C1',
+            label='$|1\\rangle$ errors',
+            **kwargs,
+        )
+        ax.legend(loc='best')
+        ax.set_ylabel('Percentile')
+        return ax
+
+    def readout_result_for_qubits(
+        self, readout_qubits: list[ops.Qid]
+    ) -> SingleQubitReadoutCalibrationResult:
+        """Builds a calibration result for the specific readout qubits."""
+        return SingleQubitReadoutCalibrationResult(
+            zero_state_errors={qubit: self.zero_state_errors[qubit] for qubit in readout_qubits},
+            one_state_errors={qubit: self.one_state_errors[qubit] for qubit in readout_qubits},
+            timestamp=self.timestamp,
+            repetitions=self.repetitions,
+        )
 
     @classmethod
     def _from_json_dict_(
@@ -75,7 +212,7 @@ class SingleQubitReadoutCalibrationResult:
 
 
 def estimate_single_qubit_readout_errors(
-    sampler: 'cirq.Sampler', *, qubits: Iterable['cirq.Qid'], repetitions: int = 1000
+    sampler: cirq.Sampler, *, qubits: Iterable[cirq.Qid], repetitions: int = 1000
 ) -> SingleQubitReadoutCalibrationResult:
     """Estimate single-qubit readout error.
 
@@ -96,19 +233,148 @@ def estimate_single_qubit_readout_errors(
         the probabilities. Also stores a timestamp indicating the time when
         data was finished being collected from the sampler.
     """
-    qubits = list(qubits)
-
-    zeros_circuit = circuits.Circuit(ops.measure_each(*qubits, key_func=repr))
-    ones_circuit = circuits.Circuit(
-        ops.X.on_each(*qubits), ops.measure_each(*qubits, key_func=repr)
+    num_qubits = len(list(qubits))
+    return estimate_parallel_single_qubit_readout_errors(
+        sampler=sampler,
+        qubits=qubits,
+        repetitions=repetitions,
+        trials=2,
+        bit_strings=np.array([[0] * num_qubits, [1] * num_qubits]),
     )
 
-    zeros_result = sampler.run(zeros_circuit, repetitions=repetitions)
-    ones_result = sampler.run(ones_circuit, repetitions=repetitions)
+
+def estimate_parallel_single_qubit_readout_errors(
+    sampler: cirq.Sampler,
+    *,
+    qubits: Iterable[cirq.Qid],
+    trials: int = 20,
+    repetitions: int = 1000,
+    trials_per_batch: int | None = None,
+    bit_strings: np.ndarray | None = None,
+) -> SingleQubitReadoutCalibrationResult:
+    """Estimate single qubit readout error using parallel operations.
+
+    For each trial, prepare and then measure a random computational basis
+    bitstring on qubits using gates in parallel.
+    Returns a SingleQubitReadoutCalibrationResult which can be used to
+    compute readout errors for each qubit.
+
+    Args:
+        sampler: The `cirq.Sampler` used to run the circuits.
+        qubits: The qubits being tested.
+        repetitions: The number of measurement repetitions to perform for
+            each trial.
+        trials: The number of bitstrings to prepare.
+        trials_per_batch:  If provided, split the experiment into batches
+            with this number of trials in each batch.
+        bit_strings: Optional numpy array of shape (trials, qubits) where the
+            first dimension is the number of the trial and the second
+            dimension is the qubit (ordered by the qubit order from
+            the qubits parameter).  Each value should be a 0 or 1 which
+            specifies which state the qubit should be prepared into during
+            that trial.  If not provided, the function will generate random
+            bit strings for you.
+
+    Returns:
+        A SingleQubitReadoutCalibrationResult storing the readout error
+        probabilities as well as the number of repetitions used to estimate
+        the probabilities. Also stores a timestamp indicating the time when
+        data was finished being collected from the sampler.  Note that,
+        if there did not exist a trial where a given qubit was set to |0〉,
+        the zero-state error will be set to `nan` (not a number).  Likewise
+        for qubits with no |1〉trial and one-state error.
+
+    Raises:
+        ValueError: If the number of trials, repetitions, or trials_per batch is
+            negative, or if bit_strings is not a numpy array or of the wrong
+            shape.
+    """
+    qubits = list(qubits)
+
+    if trials <= 0:
+        raise ValueError("Must provide non-zero trials for readout calibration.")
+    if repetitions <= 0:
+        raise ValueError("Must provide non-zero repetition for readout calibration.")
+    if bit_strings is None:
+        bit_strings = np.random.randint(0, 2, size=(trials, len(qubits)))
+    else:
+        if not hasattr(bit_strings, 'shape') or bit_strings.shape != (trials, len(qubits)):
+            raise ValueError(
+                'bit_strings must be numpy array '
+                f'of shape (trials, qubits) ({trials}, {len(qubits)}) '
+                f"but was {bit_strings.shape if hasattr(bit_strings, 'shape') else None}"
+            )
+        if not np.all((bit_strings == 0) | (bit_strings == 1)):
+            raise ValueError('bit_strings values must be all 0 or 1')
+    if trials_per_batch is None:
+        trials_per_batch = trials
+    if trials_per_batch <= 0:
+        raise ValueError("Must provide non-zero trials_per_batch for readout calibration.")
+
+    all_sweeps: list[study.Sweepable] = []
+    num_batches = (trials + trials_per_batch - 1) // trials_per_batch
+
+    # Initialize circuits
+    flip_symbols = sympy.symbols(f'flip_0:{len(qubits)}')
+    flip_circuit = circuits.Circuit(
+        [ops.X(q) ** s for q, s in zip(qubits, flip_symbols)],
+        [ops.measure_each(*qubits, key_func=repr)],
+    )
+    all_circuits = [flip_circuit] * num_batches
+    # Initialize sweeps
+    for batch in range(num_batches):
+        single_sweeps = []
+        for qubit_idx in range(len(qubits)):
+            trial_range = range(
+                batch * trials_per_batch, min((batch + 1) * trials_per_batch, trials)
+            )
+            single_sweeps.append(
+                study.Points(
+                    key=f'flip_{qubit_idx}',
+                    points=[bit_strings[bit][qubit_idx] for bit in trial_range],
+                )
+            )
+        total_sweeps = study.Zip(*single_sweeps)
+        all_sweeps.append(total_sweeps)
+
+    # Execute circuits
+    results = sampler.run_batch(all_circuits, all_sweeps, repetitions=repetitions)
     timestamp = time.time()
 
-    zero_state_errors = {q: np.mean(zeros_result.measurements[repr(q)]) for q in qubits}
-    one_state_errors = {q: 1 - np.mean(ones_result.measurements[repr(q)]) for q in qubits}
+    # Analyze results
+    zero_state_trials = np.zeros((1, len(qubits)))
+    one_state_trials = np.zeros((1, len(qubits)))
+    zero_state_totals = np.zeros((1, len(qubits)))
+    one_state_totals = np.zeros((1, len(qubits)))
+    trial_idx = 0
+    for batch_result in results:
+        for trial_result in batch_result:
+            all_measurements = trial_result.data[[repr(x) for x in qubits]].to_numpy()
+            sample_counts = np.einsum('ij->j', all_measurements)
+
+            zero_state_trials += sample_counts * (1 - bit_strings[trial_idx])
+            zero_state_totals += repetitions * (1 - bit_strings[trial_idx])
+            one_state_trials += (repetitions - sample_counts) * bit_strings[trial_idx]
+            one_state_totals += repetitions * bit_strings[trial_idx]
+
+            trial_idx += 1
+
+    zero_state_errors = {
+        q: (
+            zero_state_trials[0][qubit_idx] / zero_state_totals[0][qubit_idx]
+            if zero_state_totals[0][qubit_idx] > 0
+            else np.nan
+        )
+        for qubit_idx, q in enumerate(qubits)
+    }
+    one_state_errors = {
+        q: (
+            one_state_trials[0][qubit_idx] / one_state_totals[0][qubit_idx]
+            if one_state_totals[0][qubit_idx] > 0
+            else np.nan
+        )
+        for qubit_idx, q in enumerate(qubits)
+    }
 
     return SingleQubitReadoutCalibrationResult(
         zero_state_errors=zero_state_errors,

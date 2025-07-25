@@ -1,19 +1,22 @@
-# Copyright 2020 The Cirq developers
+# Copyright 2020 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import abc
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Sequence, Tuple, Iterator
+from typing import Iterator, Sequence, TYPE_CHECKING
 
 import numpy as np
 
@@ -27,7 +30,7 @@ if TYPE_CHECKING:
 class _NamedOneQubitState(metaclass=abc.ABCMeta):
     """Abstract class representing a one-qubit state of note."""
 
-    def on(self, qubit: 'cirq.Qid') -> 'ProductState':
+    def on(self, qubit: cirq.Qid) -> ProductState:
         """Associates one qubit with this named state.
 
         The returned object is a ProductState of length 1.
@@ -56,20 +59,19 @@ class ProductState:
     with `cirq.KET_PLUS(q0)`.
     """
 
-    states: Dict['cirq.Qid', _NamedOneQubitState]
+    states: dict[cirq.Qid, _NamedOneQubitState]
 
     def __init__(self, states=None):
         if states is None:
-            # coverage: ignore
-            states = dict()
+            states = dict()  # pragma: no cover
 
         object.__setattr__(self, 'states', states)
 
     @property
-    def qubits(self) -> Sequence['cirq.Qid']:
+    def qubits(self) -> Sequence[cirq.Qid]:
         return sorted(self.states.keys())
 
-    def __mul__(self, other: 'cirq.ProductState') -> 'cirq.ProductState':
+    def __mul__(self, other: cirq.ProductState) -> cirq.ProductState:
         if not isinstance(other, ProductState):
             raise ValueError("Multiplication is only supported with other TensorProductStates.")
 
@@ -77,7 +79,7 @@ class ProductState:
         if len(dupe_qubits) != 0:
             raise ValueError(
                 "You tried to tensor two states, "
-                "but both contain factors for these qubits: {}".format(sorted(dupe_qubits))
+                f"but both contain factors for these qubits: {sorted(dupe_qubits)}"
             )
 
         new_states = self.states.copy()
@@ -91,13 +93,13 @@ class ProductState:
         states_dict_repr = ', '.join(
             f'{repr(key)}: {repr(val)}' for key, val in self.states.items()
         )
-        return 'cirq.ProductState({%s})' % states_dict_repr
+        return f'cirq.ProductState({{{states_dict_repr}}})'
 
-    def __getitem__(self, qubit: 'cirq.Qid') -> _NamedOneQubitState:
+    def __getitem__(self, qubit: cirq.Qid) -> _NamedOneQubitState:
         """Return the _NamedOneQubitState at the given qubit."""
         return self.states[qubit]
 
-    def __iter__(self) -> Iterator[Tuple['cirq.Qid', _NamedOneQubitState]]:
+    def __iter__(self) -> Iterator[tuple[cirq.Qid, _NamedOneQubitState]]:
         yield from self.states.items()
 
     def __len__(self) -> int:
@@ -113,16 +115,13 @@ class ProductState:
         return hash(tuple(self.states.items()))
 
     def _json_dict_(self):
-        return {
-            'cirq_type': self.__class__.__name__,
-            'states': list(self.states.items()),
-        }
+        return {'states': list(self.states.items())}
 
     @classmethod
     def _from_json_dict_(cls, states, **kwargs):
         return cls(states=dict(states))
 
-    def state_vector(self, qubit_order: 'cirq.QubitOrder' = None) -> np.ndarray:
+    def state_vector(self, qubit_order: cirq.QubitOrder | None = None) -> np.ndarray:
         """The state-vector representation of this state."""
         from cirq import ops
 
@@ -139,7 +138,7 @@ class ProductState:
 
         return mat
 
-    def projector(self, qubit_order: 'cirq.QubitOrder' = None) -> np.ndarray:
+    def projector(self, qubit_order: cirq.QubitOrder | None = None) -> np.ndarray:
         """The projector associated with this state expressed as a matrix.
 
         This is |s⟩⟨s| where |s⟩ is this state.
@@ -177,7 +176,7 @@ class _PauliEigenState(_NamedOneQubitState):
         return f'cirq.{self._symbol}.basis[{self.eigenvalue:+d}]'
 
     @abc.abstractmethod
-    def stabilized_by(self) -> Tuple[int, 'cirq.Pauli']:
+    def stabilized_by(self) -> tuple[int, cirq.Pauli]:
         pass
 
     def __eq__(self, other) -> bool:
@@ -202,10 +201,9 @@ class _XEigenState(_PauliEigenState):
             return np.array([1, 1]) / np.sqrt(2)
         elif self.eigenvalue == -1:
             return np.array([1, -1]) / np.sqrt(2)
-        # coverage: ignore
-        raise ValueError(f"Bad eigenvalue: {self.eigenvalue}")
+        raise ValueError(f"Bad eigenvalue: {self.eigenvalue}")  # pragma: no cover
 
-    def stabilized_by(self) -> Tuple[int, 'cirq.Pauli']:
+    def stabilized_by(self) -> tuple[int, cirq.Pauli]:
         # Prevent circular import from `value.value_equality`
         from cirq import ops
 
@@ -220,10 +218,9 @@ class _YEigenState(_PauliEigenState):
             return np.array([1, 1j]) / np.sqrt(2)
         elif self.eigenvalue == -1:
             return np.array([1, -1j]) / np.sqrt(2)
-        # coverage: ignore
-        raise ValueError(f"Bad eigenvalue: {self.eigenvalue}")
+        raise ValueError(f"Bad eigenvalue: {self.eigenvalue}")  # pragma: no cover
 
-    def stabilized_by(self) -> Tuple[int, 'cirq.Pauli']:
+    def stabilized_by(self) -> tuple[int, cirq.Pauli]:
         from cirq import ops
 
         return self.eigenvalue, ops.Y
@@ -237,10 +234,9 @@ class _ZEigenState(_PauliEigenState):
             return np.array([1, 0])
         elif self.eigenvalue == -1:
             return np.array([0, 1])
-        # coverage: ignore
-        raise ValueError(f"Bad eigenvalue: {self.eigenvalue}")
+        raise ValueError(f"Bad eigenvalue: {self.eigenvalue}")  # pragma: no cover
 
-    def stabilized_by(self) -> Tuple[int, 'cirq.Pauli']:
+    def stabilized_by(self) -> tuple[int, cirq.Pauli]:
         from cirq import ops
 
         return self.eigenvalue, ops.Z
@@ -324,12 +320,5 @@ document(
     """,
 )
 
-PAULI_STATES = [
-    KET_PLUS,
-    KET_MINUS,
-    KET_IMAG,
-    KET_MINUS_IMAG,
-    KET_ZERO,
-    KET_ONE,
-]
-document(PAULI_STATES, """All one-qubit states stabalized by the pauli operators.""")
+PAULI_STATES = [KET_PLUS, KET_MINUS, KET_IMAG, KET_MINUS_IMAG, KET_ZERO, KET_ONE]
+document(PAULI_STATES, """All one-qubit states stabilized by the pauli operators.""")

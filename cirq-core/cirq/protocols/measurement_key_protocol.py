@@ -11,18 +11,25 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Protocol for object that have measurement keys."""
 
-from typing import AbstractSet, Any, Dict, List, Iterable, Optional, Tuple
+from __future__ import annotations
+
+from types import NotImplementedType
+from typing import Any, Mapping, TYPE_CHECKING
 
 from typing_extensions import Protocol
 
+from cirq import value
 from cirq._doc import doc_private
-from cirq.protocols.decompose_protocol import _try_decompose_into_operations_and_qubits
+
+if TYPE_CHECKING:
+    import cirq
 
 # This is a special indicator value used by the inverse method to determine
 # whether or not the caller provided a 'default' argument.
-RaiseTypeErrorIfNotProvided = ([],)  # type: Any
+RaiseTypeErrorIfNotProvided: Any = ([],)
 
 
 class SupportsMeasurementKey(Protocol):
@@ -30,8 +37,13 @@ class SupportsMeasurementKey(Protocol):
 
     Measurement keys are used in referencing the results of a measurement.
 
-    Users are free to implement either `_measurement_key_` returning one string
-    or `_measurement_keys_` returning an iterable of strings.
+    Users are free to implement one of the following. Do not implement multiple
+    of these returning different values. The protocol behavior will be
+    unexpected in such a case.
+    1. `_measurement_key_objs_` returning an iterable of `MeasurementKey`s
+    2. `_measurement_key_obj_` returning one `MeasurementKey`
+    3. `_measurement_key_names_` returning an iterable of strings
+    4. `_measurement_key_name_` returning one string
 
     Note: Measurements, in contrast to general quantum channels, are
     distinguished by the recording of the quantum operation that occurred.
@@ -47,12 +59,12 @@ class SupportsMeasurementKey(Protocol):
     """
 
     @doc_private
-    def _is_measurement_(self) -> str:
+    def _is_measurement_(self) -> bool:
         """Return if this object is (or contains) a measurement."""
 
     @doc_private
-    def _measurement_key_(self) -> str:
-        """Return the key that will be used to identify this measurement.
+    def _measurement_key_obj_(self) -> cirq.MeasurementKey:
+        """Return the key object that will be used to identify this measurement.
 
         When a measurement occurs, either on hardware, or in a simulation,
         this is the key value under which the results of the measurement
@@ -60,8 +72,8 @@ class SupportsMeasurementKey(Protocol):
         """
 
     @doc_private
-    def _measurement_keys_(self) -> Iterable[str]:
-        """Return the keys for measurements performed by the receiving object.
+    def _measurement_key_objs_(self) -> frozenset[cirq.MeasurementKey] | NotImplementedType | None:
+        """Return the key objects for measurements performed by the receiving object.
 
         When a measurement occurs, either on hardware, or in a simulation,
         these are the key values under which the results of the measurements
@@ -69,34 +81,52 @@ class SupportsMeasurementKey(Protocol):
         """
 
     @doc_private
-    def _with_measurement_key_mapping_(self, key_map: Dict[str, str]):
+    def _measurement_key_name_(self) -> str:
+        """Return the string key that will be used to identify this measurement.
+
+        When a measurement occurs, either on hardware, or in a simulation,
+        this is the key value under which the results of the measurement
+        will be stored.
+        """
+
+    @doc_private
+    def _measurement_key_names_(self) -> frozenset[str] | NotImplementedType | None:
+        """Return the string keys for measurements performed by the receiving object.
+
+        When a measurement occurs, either on hardware, or in a simulation,
+        these are the key values under which the results of the measurements
+        will be stored.
+        """
+
+    @doc_private
+    def _with_measurement_key_mapping_(self, key_map: Mapping[str, str]):
         """Return a copy of this object with the measurement keys remapped.
 
         This method allows measurement keys to be reassigned at runtime.
         """
 
 
-def measurement_key(val: Any, default: Any = RaiseTypeErrorIfNotProvided):
-    """Get the single measurement key for the given value.
+def measurement_key_obj(val: Any, default: Any = RaiseTypeErrorIfNotProvided):
+    """Get the single measurement key object for the given value.
 
     Args:
         val: The value which has one measurement key.
         default: Determines the fallback behavior when `val` doesn't have
             a measurement key. If `default` is not set, a TypeError is raised.
             If default is set to a value, that value is returned if the value
-            does not have `_measurement_key_`.
+            does not have `_measurement_key_name_`.
 
     Returns:
-        If `val` has a `_measurement_key_` method and its result is not
+        If `val` has a `_measurement_key_obj[s]_` method and its result is not
         `NotImplemented`, that result is returned. Otherwise, if a default
         value was specified, the default value is returned.
 
     Raises:
-        TypeError: `val` doesn't have a _measurement_key_ method (or that method
+        TypeError: `val` doesn't have a _measurement_key_obj[s]_ method (or that method
             returned NotImplemented) and also no default value was specified.
         ValueError: `val` has multiple measurement keys.
     """
-    result = measurement_keys(val)
+    result = measurement_key_objs(val)
 
     if len(result) == 1:
         return next(iter(result))
@@ -110,24 +140,97 @@ def measurement_key(val: Any, default: Any = RaiseTypeErrorIfNotProvided):
     raise TypeError(f"Object of type '{type(val)}' had no measurement keys.")
 
 
-def _measurement_keys_from_magic_methods(val: Any) -> Optional[AbstractSet[str]]:
-    """Uses the measurement key related magic methods to get the keys for this object."""
+def measurement_key_name(val: Any, default: Any = RaiseTypeErrorIfNotProvided):
+    """Get the single measurement key for the given value.
 
-    getter = getattr(val, '_measurement_keys_', None)
+    Args:
+        val: The value which has one measurement key.
+        default: Determines the fallback behavior when `val` doesn't have
+            a measurement key. If `default` is not set, a TypeError is raised.
+            If default is set to a value, that value is returned if the value
+            does not have `_measurement_key_name_`.
+
+    Returns:
+        If `val` has a `_measurement_key_name_` method and its result is not
+        `NotImplemented`, that result is returned. Otherwise, if a default
+        value was specified, the default value is returned.
+
+    Raises:
+        TypeError: `val` doesn't have a _measurement_key_name_ method (or that method
+            returned NotImplemented) and also no default value was specified.
+        ValueError: `val` has multiple measurement keys.
+    """
+    result = measurement_key_names(val)
+
+    if len(result) == 1:
+        return next(iter(result))
+
+    if len(result) > 1:
+        raise ValueError(f'Got multiple measurement keys ({result!r}) from {val!r}.')
+
+    if default is not RaiseTypeErrorIfNotProvided:
+        return default
+
+    raise TypeError(f"Object of type '{type(val)}' had no measurement keys.")
+
+
+def _measurement_key_objs_from_magic_methods(
+    val: Any,
+) -> frozenset[cirq.MeasurementKey] | NotImplementedType | None:
+    """Uses the measurement key related magic methods to get the `MeasurementKey`s for this
+    object."""
+
+    getter = getattr(val, '_measurement_key_objs_', None)
     result = NotImplemented if getter is None else getter()
     if result is not NotImplemented and result is not None:
-        return set(result)
+        return result
 
-    getter = getattr(val, '_measurement_key_', None)
+    getter = getattr(val, '_measurement_key_obj_', None)
     result = NotImplemented if getter is None else getter()
     if result is not NotImplemented and result is not None:
-        return {result}
+        return frozenset([result])
+    return result
+
+
+def _measurement_key_names_from_magic_methods(
+    val: Any,
+) -> frozenset[str] | NotImplementedType | None:
+    """Uses the measurement key related magic methods to get the key strings for this object."""
+
+    getter = getattr(val, '_measurement_key_names_', None)
+    result = NotImplemented if getter is None else getter()
+    if result is not NotImplemented and result is not None:
+        return result
+
+    getter = getattr(val, '_measurement_key_name_', None)
+    result = NotImplemented if getter is None else getter()
+    if result is not NotImplemented and result is not None:
+        return frozenset([result])
 
     return result
 
 
-def measurement_keys(val: Any, *, allow_decompose: bool = True) -> AbstractSet[str]:
-    """Gets the measurement keys of measurements within the given value.
+def measurement_key_objs(val: Any) -> frozenset[cirq.MeasurementKey]:
+    """Gets the measurement key objects of measurements within the given value.
+
+    Args:
+        val: The value which has the measurement key.
+
+    Returns:
+        The measurement key objects of the value. If the value has no measurement,
+        the result is the empty set.
+    """
+    result = _measurement_key_objs_from_magic_methods(val)
+    if result is not NotImplemented and result is not None:
+        return result
+    key_strings = _measurement_key_names_from_magic_methods(val)
+    if key_strings is not NotImplemented and key_strings is not None:
+        return frozenset(value.MeasurementKey.parse_serialized(key_str) for key_str in key_strings)
+    return frozenset()
+
+
+def measurement_key_names(val: Any) -> frozenset[str]:
+    """Gets the measurement key strings of measurements within the given value.
 
     Args:
         val: The value which has the measurement key.
@@ -140,68 +243,24 @@ def measurement_keys(val: Any, *, allow_decompose: bool = True) -> AbstractSet[s
 
     Returns:
         The measurement keys of the value. If the value has no measurement,
-        the result is the empty tuple.
+        the result is the empty set.
     """
-    result = _measurement_keys_from_magic_methods(val)
+    result = _measurement_key_names_from_magic_methods(val)
     if result is not NotImplemented and result is not None:
         return result
-
-    if allow_decompose:
-        operations, _, _ = _try_decompose_into_operations_and_qubits(val)
-        if operations is not None:
-            return {key for op in operations for key in measurement_keys(op)}
-
-    return set()
+    key_objs = _measurement_key_objs_from_magic_methods(val)
+    if key_objs is not NotImplemented and key_objs is not None:
+        return frozenset(str(key_obj) for key_obj in key_objs)
+    return frozenset()
 
 
-def _is_measurement_from_magic_method(val: Any) -> Optional[bool]:
+def _is_measurement_from_magic_method(val: Any) -> bool | None:
     """Uses `is_measurement` magic method to determine if this object is a measurement."""
     getter = getattr(val, '_is_measurement_', None)
     return NotImplemented if getter is None else getter()
 
 
-def _is_any_measurement(vals: List[Any], allow_decompose: bool) -> bool:
-    """Given a list of objects, returns True if any of them is a measurement.
-
-    If `allow_decompose` is True, decomposes the objects and runs the measurement checks on the
-    constituent decomposed operations. But a decompose operation is only called if all cheaper
-    checks are done. A BFS for searching measurements, where "depth" is each level of decompose.
-    """
-    vals_to_decompose = []  # type: List[Any]
-    while vals:
-        val = vals.pop(0)
-        result = _is_measurement_from_magic_method(val)
-        if result is not NotImplemented:
-            if result is True:
-                return True
-            if result is False:
-                # Do not try any other strategies if `val` was explicitly marked as
-                # "not measurement".
-                continue
-
-        keys = _measurement_keys_from_magic_methods(val)
-        if keys is not NotImplemented and bool(keys) is True:
-            return True
-
-        if allow_decompose:
-            vals_to_decompose.append(val)
-
-        # If vals has finished iterating over, keep decomposing from vals_to_decompose until vals
-        # is populated with something.
-        while not vals:
-            if not vals_to_decompose:
-                # Nothing left to process, this is not a measurement.
-                return False
-            operations, _, _ = _try_decompose_into_operations_and_qubits(vals_to_decompose.pop(0))
-            if operations:
-                # Reverse the decomposed operations because measurements are typically at later
-                # moments.
-                vals = operations[::-1]
-
-    return False
-
-
-def is_measurement(val: Any, allow_decompose: bool = True) -> bool:
+def is_measurement(val: Any) -> bool:
     """Determines whether or not the given value is a measurement (or contains one).
 
     Measurements are identified by the fact that any of them may have an `_is_measurement_` method
@@ -213,10 +272,15 @@ def is_measurement(val: Any, allow_decompose: bool = True) -> bool:
             don't directly specify their `_is_measurement_` property will be decomposed in
             order to find any measurements keys within the decomposed operations.
     """
-    return _is_any_measurement([val], allow_decompose)
+    result = _is_measurement_from_magic_method(val)
+    if isinstance(result, bool):
+        return result
+
+    keys = measurement_key_objs(val)
+    return keys is not NotImplemented and bool(keys)
 
 
-def with_measurement_key_mapping(val: Any, key_map: Dict[str, str]):
+def with_measurement_key_mapping(val: Any, key_map: Mapping[str, str]):
     """Remaps the target's measurement keys according to the provided key_map.
 
     This method can be used to reassign measurement keys at runtime, or to
@@ -226,7 +290,7 @@ def with_measurement_key_mapping(val: Any, key_map: Dict[str, str]):
     return NotImplemented if getter is None else getter(key_map)
 
 
-def with_key_path(val: Any, path: Tuple[str, ...]):
+def with_key_path(val: Any, path: tuple[str, ...]):
     """Adds the path to the target's measurement keys.
 
     The path usually refers to an identifier or a list of identifiers from a subcircuit that
@@ -235,3 +299,39 @@ def with_key_path(val: Any, path: Tuple[str, ...]):
     """
     getter = getattr(val, '_with_key_path_', None)
     return NotImplemented if getter is None else getter(path)
+
+
+def with_key_path_prefix(val: Any, prefix: tuple[str, ...]):
+    """Prefixes the path to the target's measurement keys.
+
+    The path usually refers to an identifier or a list of identifiers from a subcircuit that
+    used to contain the target. Since a subcircuit can be repeated and reused, these paths help
+    differentiate the actual measurement keys.
+
+    Args:
+        val: The value whose path to prefix.
+        prefix: The prefix to apply to the value's path.
+    """
+    getter = getattr(val, '_with_key_path_prefix_', None)
+    return NotImplemented if getter is None else getter(prefix)
+
+
+def with_rescoped_keys(
+    val: Any, path: tuple[str, ...], bindable_keys: frozenset[cirq.MeasurementKey] | None = None
+):
+    """Rescopes any measurement and control keys to the provided path, given the existing keys.
+
+    The path usually refers to an identifier or a list of identifiers from a subcircuit that
+    used to contain the target. Since a subcircuit can be repeated and reused, these paths help
+    differentiate the actual measurement keys.
+
+    This function is generally for internal use in decomposing or iterating subcircuits.
+
+    Args:
+        val: The value to rescope.
+        path: The prefix to apply to the value's path.
+        bindable_keys: The keys that can be bound to at the current scope.
+    """
+    getter = getattr(val, '_with_rescoped_keys_', None)
+    result = NotImplemented if getter is None else getter(path, bindable_keys or frozenset())
+    return result if result is not NotImplemented else val

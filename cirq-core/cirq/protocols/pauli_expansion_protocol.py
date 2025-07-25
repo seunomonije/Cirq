@@ -11,9 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Protocol for obtaining expansion of linear operators in Pauli basis."""
 
-from typing import Any, TypeVar, Union
+from __future__ import annotations
+
+from typing import Any, TypeVar
+
 from typing_extensions import Protocol
 
 from cirq import value
@@ -23,7 +27,7 @@ from cirq.protocols import qid_shape_protocol, unitary_protocol
 
 TDefault = TypeVar('TDefault')
 
-RaiseTypeErrorIfNotProvided = value.LinearDict({})  # type: value.LinearDict[str]
+RaiseTypeErrorIfNotProvided: value.LinearDict[str] = value.LinearDict({})
 
 
 class SupportsPauliExpansion(Protocol):
@@ -44,9 +48,9 @@ class SupportsPauliExpansion(Protocol):
 def pauli_expansion(
     val: Any,
     *,
-    default: Union[value.LinearDict[str], TDefault] = RaiseTypeErrorIfNotProvided,
+    default: value.LinearDict[str] | TDefault = RaiseTypeErrorIfNotProvided,
     atol: float = 1e-9,
-) -> Union[value.LinearDict[str], TDefault]:
+) -> value.LinearDict[str] | TDefault:
     """Returns coefficients of the expansion of val in the Pauli basis.
 
     Args:
@@ -64,8 +68,8 @@ def pauli_expansion(
         TypeError is raised.
 
     Raises:
-        TypeError if `val` has none of the methods necessary to obtain its Pauli
-        expansion and no default value has been provided.
+        TypeError: If `val` has none of the methods necessary to obtain its Pauli
+            expansion and no default value has been provided.
     """
     method = getattr(val, '_pauli_expansion_', None)
     expansion = NotImplemented if method is None else method()

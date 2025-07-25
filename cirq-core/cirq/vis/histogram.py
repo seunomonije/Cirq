@@ -11,25 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Mapping, Optional, Sequence, Union, SupportsFloat
+
+from __future__ import annotations
+
+from typing import Any, Mapping, Sequence, SupportsFloat
 
 import numpy as np
 from matplotlib import pyplot as plt
 
 
 def integrated_histogram(
-    data: Union[Sequence[SupportsFloat], Mapping[Any, SupportsFloat]],
-    ax: Optional[plt.Axes] = None,
+    data: Sequence[SupportsFloat] | Mapping[Any, SupportsFloat],
+    ax: plt.Axes | None = None,
     *,
     cdf_on_x: bool = False,
     axis_label: str = '',
     semilog: bool = True,
     median_line: bool = True,
-    median_label: Optional[str] = 'median',
+    median_label: str | None = 'median',
     mean_line: bool = False,
-    mean_label: Optional[str] = 'mean',
+    mean_label: str | None = 'mean',
     show_zero: bool = False,
-    title: Optional[str] = None,
+    title: str | None = None,
     **kwargs,
 ) -> plt.Axes:
     """Plot the integrated histogram for an array of data.
@@ -86,28 +89,23 @@ def integrated_histogram(
     if isinstance(data, Mapping):
         data = list(data.values())
 
-    data = [d for d in data if not np.isnan(d)]
-    n = len(data)
+    float_data = [float(d) for d in data if not np.isnan(float(d))]
+
+    n = len(float_data)
 
     if not show_zero:
         bin_values = np.linspace(0, 1, n + 1)
-        parameter_values = sorted(np.concatenate(([0], data)))
+        parameter_values = sorted(np.concatenate((np.array([0]), np.array(float_data))))
     else:
         bin_values = np.linspace(0, 1, n)
-        parameter_values = sorted(data)
-    plot_options = {
-        "where": 'post',
-        "color": 'b',
-        "linestyle": '-',
-        "lw": 1.0,
-        "ms": 0.0,
-    }
+        parameter_values = sorted(float_data)
+    plot_options = {"where": 'post', "color": 'b', "linestyle": '-', "lw": 1.0, "ms": 0.0}
     plot_options.update(kwargs)
 
     if cdf_on_x:
-        ax.step(bin_values, parameter_values, **plot_options)
+        ax.step(bin_values, parameter_values, **plot_options)  # type: ignore
     else:
-        ax.step(parameter_values, bin_values, **plot_options)
+        ax.step(parameter_values, bin_values, **plot_options)  # type: ignore
 
     set_semilog = ax.semilogy if cdf_on_x else ax.semilogx
     set_lim = ax.set_xlim if cdf_on_x else ax.set_ylim
@@ -133,7 +131,7 @@ def integrated_histogram(
 
     if median_line:
         set_line(
-            np.median(data),
+            float(np.median(float_data)),
             linestyle='--',
             color=plot_options['color'],
             alpha=0.5,
@@ -141,7 +139,11 @@ def integrated_histogram(
         )
     if mean_line:
         set_line(
-            np.mean(data), linestyle='-.', color=plot_options['color'], alpha=0.5, label=mean_label
+            float(np.mean(float_data)),
+            linestyle='-.',
+            color=plot_options['color'],
+            alpha=0.5,
+            label=mean_label,
         )
     if show_plot:
         fig.show()

@@ -1,3 +1,4 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
 """Superdense Coding.
 Superdense Coding is a method to transmit two classical bits of information
 by sending only one qubit of information. This is accomplished by
@@ -35,6 +36,8 @@ input =10001000000000011110, 10000001100000001000
 output=10001000000000011110, 10000001100000001000
 
 """
+
+from __future__ import annotations
 
 import cirq
 

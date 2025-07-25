@@ -1,14 +1,19 @@
-import warnings
-from typing import Sequence, Union, List, Tuple, Dict, Optional
+# pylint: disable=wrong-or-nonexistent-copyright-notice
 
-import numpy as np
+from __future__ import annotations
+
+import warnings
+from typing import cast, Sequence, TYPE_CHECKING
+
 import quimb
 import quimb.tensor as qtn
 
 import cirq
 
+if TYPE_CHECKING:
+    import numpy as np
 
-# coverage: ignore
+
 def _get_quimb_version():
     """Returns the quimb version and parsed (major,minor) numbers if possible.
     Returns:
@@ -17,7 +22,7 @@ def _get_quimb_version():
     version = quimb.__version__
     try:
         return tuple(int(x) for x in version.split('.')), version
-    except:
+    except:  # pragma: no cover
         return (0, 0), version
 
 
@@ -25,10 +30,8 @@ QUIMB_VERSION = _get_quimb_version()
 
 
 def circuit_to_tensors(
-    circuit: cirq.Circuit,
-    qubits: Optional[Sequence[cirq.Qid]] = None,
-    initial_state: Union[int, None] = 0,
-) -> Tuple[List[qtn.Tensor], Dict['cirq.Qid', int], None]:
+    circuit: cirq.Circuit, qubits: Sequence[cirq.Qid] | None = None, initial_state: int | None = 0
+) -> tuple[list[qtn.Tensor], dict[cirq.Qid, int], None]:
     """Given a circuit, construct a tensor network representation.
 
     Indices are named "i{i}_q{x}" where i is a time index and x is a
@@ -52,13 +55,17 @@ def circuit_to_tensors(
             a suitable mapping for tn.graph()'s `fix` argument. Currently,
             `fix=None` will draw the resulting tensor network using a spring
             layout.
+
+    Raises:
+        ValueError: If the ihitial state is anything other than that
+            corresponding to the |0> state.
     """
     if qubits is None:
-        qubits = sorted(circuit.all_qubits())  # coverage: ignore
+        qubits = sorted(circuit.all_qubits())  # pragma: no cover
 
     qubit_frontier = {q: 0 for q in qubits}
     positions = None
-    tensors: List[qtn.Tensor] = []
+    tensors: list[qtn.Tensor] = []
 
     if initial_state == 0:
         for q in qubits:
@@ -71,7 +78,7 @@ def circuit_to_tensors(
 
     for moment in circuit.moments:
         for op in moment.operations:
-            assert op.gate._has_unitary_()
+            assert cirq.has_unitary(op.gate)
             start_inds = [f'i{qubit_frontier[q]}_q{q}' for q in op.qubits]
             for q in op.qubits:
                 qubit_frontier[q] += 1
@@ -85,7 +92,7 @@ def circuit_to_tensors(
 
 
 def tensor_state_vector(
-    circuit: cirq.Circuit, qubits: Optional[Sequence[cirq.Qid]] = None
+    circuit: cirq.Circuit, qubits: Sequence[cirq.Qid] | None = None
 ) -> np.ndarray:
     """Given a circuit contract a tensor network into a final state vector."""
     if qubits is None:
@@ -98,9 +105,7 @@ def tensor_state_vector(
     return tn.to_dense(f_inds)
 
 
-def tensor_unitary(
-    circuit: cirq.Circuit, qubits: Optional[Sequence[cirq.Qid]] = None
-) -> np.ndarray:
+def tensor_unitary(circuit: cirq.Circuit, qubits: Sequence[cirq.Qid] | None = None) -> np.ndarray:
     """Given a circuit contract a tensor network into a dense unitary
     of the circuit."""
     if qubits is None:
@@ -158,8 +163,7 @@ def tensor_expectation_value(
     ]
     tn = qtn.TensorNetwork(tensors + end_bras)
     if QUIMB_VERSION[0] < (1, 3):
-        # coverage: ignore
-        warnings.warn(
+        warnings.warn(  # pragma: no cover
             f'quimb version {QUIMB_VERSION[1]} detected. Please use '
             f'quimb>=1.3 for optimal performance in '
             '`tensor_expectation_value`. '
@@ -172,6 +176,8 @@ def tensor_expectation_value(
     if ram_gb > max_ram_gb:
         raise MemoryError(f"We estimate that this contraction will take too much RAM! {ram_gb} GB")
     e_val = tn.contract(inplace=True)
+    if isinstance(e_val, qtn.TensorNetwork):
+        e_val = e_val.item()
     assert e_val.imag < tol
-    assert pauli_string.coefficient.imag < tol
+    assert cast(complex, pauli_string.coefficient).imag < tol
     return e_val.real * pauli_string.coefficient

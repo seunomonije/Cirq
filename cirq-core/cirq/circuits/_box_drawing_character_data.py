@@ -14,8 +14,9 @@
 
 """Exposes structured data about unicode/ascii box drawing characters."""
 
-from typing import List, NamedTuple, Optional
+from __future__ import annotations
 
+from typing import NamedTuple
 
 _BoxDrawCharacterSet = NamedTuple(
     '_BoxDrawCharacterSet',
@@ -42,7 +43,7 @@ _BoxDrawCharacterSet = NamedTuple(
 class BoxDrawCharacterSet(_BoxDrawCharacterSet):
     def char(
         self, top: bool = False, bottom: bool = False, left: bool = False, right: bool = False
-    ) -> Optional[str]:
+    ) -> str | None:
         parts = []
         if top:
             parts.append('top')
@@ -117,10 +118,8 @@ _MixedBoxDrawCharacterSet = NamedTuple(
 
 
 class MixedBoxDrawCharacterSet(_MixedBoxDrawCharacterSet):
-    def char(
-        self, *, top: int = 0, bottom: int = 0, left: int = 0, right: int = 0
-    ) -> Optional[str]:
-        def parts_with(val: int) -> List[str]:
+    def char(self, *, top: int = 0, bottom: int = 0, left: int = 0, right: int = 0) -> str | None:
+        def parts_with(val: int) -> list[str]:
             parts = []
             if top == val:
                 parts.append('top')
@@ -282,15 +281,71 @@ NORMAL_THEN_BOLD_MIXED_BOX_CHARS = MixedBoxDrawCharacterSet(
 )
 
 
+NORMAL_THEN_DOUBLED_MIXED_BOX_CHARS = MixedBoxDrawCharacterSet(
+    first_char_set=NORMAL_BOX_CHARS,
+    second_char_set=DOUBLED_BOX_CHARS,
+    top_then_bottom=' ',
+    top_then_left='╛',
+    top_then_right='╘',
+    top_then_bottom_left=' ',
+    top_then_bottom_right=' ',
+    top_then_left_right='╧',
+    top_then_bottom_left_right=' ',
+    bottom_then_top=' ',
+    bottom_then_left='╕',
+    bottom_then_right='╒',
+    bottom_then_top_left=' ',
+    bottom_then_top_right=' ',
+    bottom_then_left_right='╤',
+    bottom_then_top_left_right=' ',
+    left_then_top='╜',
+    left_then_bottom='╖',
+    left_then_right=' ',
+    left_then_top_bottom='╢',
+    left_then_bottom_right=' ',
+    left_then_top_right=' ',
+    left_then_top_bottom_right=' ',
+    right_then_top='╙',
+    right_then_bottom='╓',
+    right_then_left=' ',
+    right_then_top_bottom='╟',
+    right_then_top_left=' ',
+    right_then_bottom_left=' ',
+    right_then_top_bottom_left=' ',
+    top_bottom_then_left='╡',
+    top_bottom_then_right='╞',
+    top_bottom_then_left_right='╪',
+    top_left_then_bottom=' ',
+    top_left_then_right=' ',
+    top_left_then_bottom_right=' ',
+    top_right_then_bottom=' ',
+    top_right_then_left=' ',
+    top_right_then_bottom_left=' ',
+    bottom_left_then_top=' ',
+    bottom_left_then_right=' ',
+    bottom_left_then_top_right=' ',
+    bottom_right_then_top=' ',
+    bottom_right_then_left=' ',
+    bottom_right_then_top_left=' ',
+    left_right_then_top='╨',
+    left_right_then_bottom='╥',
+    left_right_then_top_bottom='╫',
+    top_bottom_left_then_right=' ',
+    top_bottom_right_then_left=' ',
+    top_left_right_then_bottom=' ',
+    bottom_left_right_then_top=' ',
+)
+
+
 def box_draw_character(
-    first: Optional[BoxDrawCharacterSet],
+    first: BoxDrawCharacterSet | None,
     second: BoxDrawCharacterSet,
     *,
     top: int = 0,
     bottom: int = 0,
     left: int = 0,
     right: int = 0,
-) -> Optional[str]:
+) -> str | None:
     """Finds a box drawing character based on its connectivity.
 
     For example:
@@ -326,6 +381,11 @@ def box_draw_character(
         combo = NORMAL_THEN_BOLD_MIXED_BOX_CHARS
     if first is BOLD_BOX_CHARS and second is NORMAL_BOX_CHARS:
         combo = NORMAL_THEN_BOLD_MIXED_BOX_CHARS
+        sign = -1
+    if first is NORMAL_BOX_CHARS and second is DOUBLED_BOX_CHARS:
+        combo = NORMAL_THEN_DOUBLED_MIXED_BOX_CHARS
+    if first is DOUBLED_BOX_CHARS and second is NORMAL_BOX_CHARS:
+        combo = NORMAL_THEN_DOUBLED_MIXED_BOX_CHARS
         sign = -1
 
     if combo is None:

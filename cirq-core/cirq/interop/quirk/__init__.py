@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,12 +20,12 @@ References:
 
 # Imports from cells are only to ensure operation reprs work correctly.
 from cirq.interop.quirk.cells import (
-    QuirkArithmeticOperation,
-    QuirkInputRotationOperation,
-    QuirkQubitPermutationGate,
+    QuirkArithmeticGate as QuirkArithmeticGate,
+    QuirkInputRotationOperation as QuirkInputRotationOperation,
+    QuirkQubitPermutationGate as QuirkQubitPermutationGate,
 )
 
 from cirq.interop.quirk.url_to_circuit import (
-    quirk_json_to_circuit,
-    quirk_url_to_circuit,
+    quirk_json_to_circuit as quirk_json_to_circuit,
+    quirk_url_to_circuit as quirk_url_to_circuit,
 )

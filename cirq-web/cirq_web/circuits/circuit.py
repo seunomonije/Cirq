@@ -11,14 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 from typing import Iterable
+
 import cirq
 from cirq_web import widget
 from cirq_web.circuits.symbols import (
-    Operation3DSymbol,
-    SymbolResolver,
-    resolve_operation,
     DEFAULT_SYMBOL_RESOLVERS,
+    Operation3DSymbol,
+    resolve_operation,
+    SymbolResolver,
 )
 
 
@@ -34,7 +38,9 @@ class Circuit3D(widget.Widget):
         """Initializes a Circuit instance.
 
         Args:
-            circuit: The cirq.Circuit to be represented in 3D.
+            circuit: The `cirq.Circuit` to be represented in 3D.
+            resolvers: The symbol resolve for how to show symbols in 3D.
+            padding_factor: The distance between meshes.
         """
         super().__init__()
         self.circuit = circuit
@@ -55,7 +61,9 @@ class Circuit3D(widget.Widget):
             <button id="camera-reset">Reset Camera</button>
             <button id="camera-toggle">Toggle Camera Type</button>
             <script>
-            let viz_{stripped_id} = createGridCircuit({self.serialized_circuit}, {moments}, "{self.id}", {self.padding_factor});
+            let viz_{stripped_id} = createGridCircuit(
+                {self.serialized_circuit}, {moments}, "{self.id}", {self.padding_factor}
+            );
 
             document.getElementById("camera-reset").addEventListener('click', ()  => {{
             viz_{stripped_id}.scene.setCameraAndControls(viz_{stripped_id}.circuit);
@@ -85,5 +93,10 @@ class Circuit3D(widget.Widget):
         symbol_info = resolve_operation(operation, self._resolvers)
         location_info = []
         for qubit in operation.qubits:
-            location_info.append({'row': qubit.row, 'col': qubit.col})
+            if isinstance(qubit, cirq.GridQubit):
+                location_info.append({'row': qubit.row, 'col': qubit.col})
+            elif isinstance(qubit, cirq.LineQubit):
+                location_info.append({'row': qubit.x, 'col': 0})
+            else:
+                raise ValueError('Unsupported qubit type')
         return Operation3DSymbol(symbol_info.labels, location_info, symbol_info.colors, moment)

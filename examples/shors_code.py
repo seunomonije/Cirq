@@ -1,4 +1,5 @@
-""" Shor's code is a stabilizer code for quantum error correction.
+# pylint: disable=wrong-or-nonexistent-copyright-notice
+"""Shor's code is a stabilizer code for quantum error correction.
 It uses 9 qubits to encode 1 logic qubit and is able to correct
 at most one bit flip and one sign flip or their combination.
 
@@ -23,6 +24,8 @@ at most one bit flip and one sign flip or their combination.
 reference: P. W. Shor, Phys. Rev. A, 52, R2493 (1995).
 """
 
+from __future__ import annotations
+
 import random
 
 import cirq
@@ -34,23 +37,23 @@ class OneQubitShorsCode:
         self.physical_qubits = cirq.LineQubit.range(self.num_physical_qubits)
 
     def encode(self):
-        yield cirq.ops.Moment([cirq.CNOT(self.physical_qubits[0], self.physical_qubits[3])])
-        yield cirq.ops.Moment([cirq.CNOT(self.physical_qubits[0], self.physical_qubits[6])])
-        yield cirq.ops.Moment(
+        yield cirq.Moment([cirq.CNOT(self.physical_qubits[0], self.physical_qubits[3])])
+        yield cirq.Moment([cirq.CNOT(self.physical_qubits[0], self.physical_qubits[6])])
+        yield cirq.Moment(
             [
                 cirq.H(self.physical_qubits[0]),
                 cirq.H(self.physical_qubits[3]),
                 cirq.H(self.physical_qubits[6]),
             ]
         )
-        yield cirq.ops.Moment(
+        yield cirq.Moment(
             [
                 cirq.CNOT(self.physical_qubits[0], self.physical_qubits[1]),
                 cirq.CNOT(self.physical_qubits[3], self.physical_qubits[4]),
                 cirq.CNOT(self.physical_qubits[6], self.physical_qubits[7]),
             ]
         )
-        yield cirq.ops.Moment(
+        yield cirq.Moment(
             [
                 cirq.CNOT(self.physical_qubits[0], self.physical_qubits[2]),
                 cirq.CNOT(self.physical_qubits[3], self.physical_qubits[5]),
@@ -65,21 +68,21 @@ class OneQubitShorsCode:
             return gate(self.physical_qubits[pos])
 
     def correct(self):
-        yield cirq.ops.Moment(
+        yield cirq.Moment(
             [
                 cirq.CNOT(self.physical_qubits[0], self.physical_qubits[1]),
                 cirq.CNOT(self.physical_qubits[3], self.physical_qubits[4]),
                 cirq.CNOT(self.physical_qubits[6], self.physical_qubits[7]),
             ]
         )
-        yield cirq.ops.Moment(
+        yield cirq.Moment(
             [
                 cirq.CNOT(self.physical_qubits[0], self.physical_qubits[2]),
                 cirq.CNOT(self.physical_qubits[3], self.physical_qubits[5]),
                 cirq.CNOT(self.physical_qubits[6], self.physical_qubits[8]),
             ]
         )
-        yield cirq.ops.Moment(
+        yield cirq.Moment(
             [
                 cirq.CCNOT(
                     self.physical_qubits[1], self.physical_qubits[2], self.physical_qubits[0]
@@ -92,23 +95,21 @@ class OneQubitShorsCode:
                 ),
             ]
         )
-        yield cirq.ops.Moment(
+        yield cirq.Moment(
             [
                 cirq.H(self.physical_qubits[0]),
                 cirq.H(self.physical_qubits[3]),
                 cirq.H(self.physical_qubits[6]),
             ]
         )
-        yield cirq.ops.Moment([cirq.CNOT(self.physical_qubits[0], self.physical_qubits[3])])
-        yield cirq.ops.Moment([cirq.CNOT(self.physical_qubits[0], self.physical_qubits[6])])
-        yield cirq.ops.Moment(
+        yield cirq.Moment([cirq.CNOT(self.physical_qubits[0], self.physical_qubits[3])])
+        yield cirq.Moment([cirq.CNOT(self.physical_qubits[0], self.physical_qubits[6])])
+        yield cirq.Moment(
             [cirq.CCNOT(self.physical_qubits[3], self.physical_qubits[6], self.physical_qubits[0])]
         )
 
 
-if __name__ == '__main__':
-    # coverage: ignore
-
+if __name__ == '__main__':  # pragma: no cover
     # create circuit with 9 physical qubits
     code = OneQubitShorsCode()
 

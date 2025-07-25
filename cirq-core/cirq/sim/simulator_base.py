@@ -14,50 +14,38 @@
 
 """Batteries-included class for Cirq's built-in simulators."""
 
+from __future__ import annotations
+
 import abc
 import collections
-from typing import (
-    Any,
-    Dict,
-    Iterator,
-    List,
-    Tuple,
-    TYPE_CHECKING,
-    cast,
-    Generic,
-    Type,
-    Sequence,
-    Optional,
-    TypeVar,
-)
+from typing import Any, cast, Generic, Iterator, Sequence, TYPE_CHECKING, TypeVar
 
 import numpy as np
 
-from cirq import circuits, ops, protocols, study, value, devices
-from cirq.sim import ActOnArgsContainer
-from cirq.sim.operation_target import OperationTarget
+from cirq import devices, ops, protocols, study, value
+from cirq.sim.simulation_product_state import SimulationProductState
+from cirq.sim.simulation_state import TSimulationState
+from cirq.sim.simulation_state_base import SimulationStateBase
 from cirq.sim.simulator import (
-    TSimulationTrialResult,
-    TSimulatorState,
-    TActOnArgs,
+    check_all_resolved,
     SimulatesIntermediateState,
     SimulatesSamples,
-    StepResult,
-    check_all_resolved,
+    SimulationTrialResult,
     split_into_matching_protocol_then_general,
+    StepResult,
+    TSimulationTrialResult,
 )
 
 if TYPE_CHECKING:
     import cirq
 
-
 TStepResultBase = TypeVar('TStepResultBase', bound='StepResultBase')
 
 
 class SimulatorBase(
-    Generic[TStepResultBase, TSimulationTrialResult, TSimulatorState, TActOnArgs],
+    Generic[TStepResultBase, TSimulationTrialResult, TSimulationState],
     SimulatesIntermediateState[
-        TStepResultBase, TSimulationTrialResult, TSimulatorState, TActOnArgs
+        TStepResultBase, TSimulationTrialResult, SimulationStateBase[TSimulationState]
     ],
     SimulatesSamples,
     metaclass=abc.ABCMeta,
@@ -65,10 +53,10 @@ class SimulatorBase(
     """A base class for the built-in simulators.
 
     Most implementors of this interface should implement the
-    `_create_partial_act_on_args` and `_create_step_result` methods. The first
-    one creates the simulator's quantum state representation at the beginning
-    of the simulation. The second creates the step result emitted after each
-    `Moment` in the simulation.
+    `_create_partial_simulation_state` and `_create_step_result` methods. The
+    first one creates the simulator's quantum state representation at the
+    beginning of the simulation. The second creates the step result emitted
+    after each `Moment` in the simulation.
 
     Iteration in the subclass is handled by the `_core_iterator` implementation
     here, which handles moment stepping, application of operations, measurement
@@ -92,10 +80,9 @@ class SimulatorBase(
     def __init__(
         self,
         *,
-        dtype: Type[np.number] = np.complex64,
-        noise: 'cirq.NOISE_MODEL_LIKE' = None,
-        seed: 'cirq.RANDOM_STATE_OR_SEED_LIKE' = None,
-        ignore_measurement_results: bool = False,
+        dtype: type[np.complexfloating] = np.complex64,
+        noise: cirq.NOISE_MODEL_LIKE = None,
+        seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
         split_untangled_states: bool = False,
     ):
         """Initializes the simulator.
@@ -104,28 +91,27 @@ class SimulatorBase(
             dtype: The `numpy.dtype` used by the simulation.
             noise: A noise model to apply while simulating.
             seed: The random seed to use for this simulator.
-            ignore_measurement_results: If True, then the simulation
-                will treat measurement as dephasing instead of collapsing
-                process. This is only applicable to simulators that can
-                model dephasing.
             split_untangled_states: If True, optimizes simulation by running
                 unentangled qubit sets independently and merging those states
                 at the end.
         """
         self._dtype = dtype
         self._prng = value.parse_random_state(seed)
-        self.noise = devices.NoiseModel.from_noise_model_like(noise)
-        self._ignore_measurement_results = ignore_measurement_results
+        self._noise = devices.NoiseModel.from_noise_model_like(noise)
         self._split_untangled_states = split_untangled_states
 
+    @property
+    def noise(self) -> cirq.NoiseModel:
+        return self._noise
+
     @abc.abstractmethod
-    def _create_partial_act_on_args(
+    def _create_partial_simulation_state(
         self,
         initial_state: Any,
-        qubits: Sequence['cirq.Qid'],
-        logs: Dict[str, Any],
-    ) -> TActOnArgs:
-        """Creates an instance of the TActOnArgs class for the simulator.
+        qubits: Sequence[cirq.Qid],
+        classical_data: cirq.ClassicalDataStore,
+    ) -> TSimulationState:
+        """Creates an instance of the TSimulationState class for the simulator.
 
         It represents the supplied qubits initialized to the provided state.
 
@@ -134,19 +120,18 @@ class SimulatorBase(
                 understood to be a pure state. Other state representations are
                 simulator-dependent.
             qubits: The sequence of qubits to represent.
-            logs: The structure to hold measurement logs. A single instance
-                should be shared among all ActOnArgs within the simulation.
+            classical_data: The shared classical data container for this
+                simulation.
         """
 
     @abc.abstractmethod
     def _create_step_result(
-        self,
-        sim_state: OperationTarget[TActOnArgs],
+        self, sim_state: SimulationStateBase[TSimulationState]
     ) -> TStepResultBase:
         """This method should be implemented to create a step result.
 
         Args:
-            sim_state: The OperationTarget for this trial.
+            sim_state: The SimulationStateBase for this trial.
 
         Returns:
             The StepResult.
@@ -174,10 +159,16 @@ class SimulatorBase(
             `_run` prefix."""
         return protocols.has_unitary(val)
 
+    def _base_iterator(
+        self, circuit: cirq.AbstractCircuit, qubits: tuple[cirq.Qid, ...], initial_state: Any
+    ) -> Iterator[TStepResultBase]:
+        sim_state = self._create_simulation_state(initial_state, qubits)
+        return self._core_iterator(circuit, sim_state)
+
     def _core_iterator(
         self,
-        circuit: circuits.Circuit,
-        sim_state: OperationTarget[TActOnArgs],
+        circuit: cirq.AbstractCircuit,
+        sim_state: SimulationStateBase[TSimulationState],
         all_measurements_are_terminal: bool = False,
     ) -> Iterator[TStepResultBase]:
         """Standard iterator over StepResult from Moments of a Circuit.
@@ -187,9 +178,14 @@ class SimulatorBase(
             sim_state: The initial args for the simulation. The form of
                 this state depends on the simulation implementation. See
                 documentation of the implementing class for details.
+            all_measurements_are_terminal: Whether all measurements in the
+                given circuit are terminal.
 
         Yields:
             StepResults from simulating a Moment of the Circuit.
+
+        Raises:
+            TypeError: The simulator encounters an op it does not support.
         """
 
         if len(circuit) == 0:
@@ -197,13 +193,10 @@ class SimulatorBase(
             return
 
         noisy_moments = self.noise.noisy_moments(circuit, sorted(circuit.all_qubits()))
-        measured: Dict[Tuple['cirq.Qid', ...], bool] = collections.defaultdict(bool)
+        measured: dict[tuple[cirq.Qid, ...], bool] = collections.defaultdict(bool)
         for moment in noisy_moments:
             for op in ops.flatten_to_ops(moment):
                 try:
-                    # TODO: support more general measurements.
-                    # Github issue: https://github.com/quantumlib/Cirq/issues/3566
-
                     # Preprocess measurements
                     if all_measurements_are_terminal and measured[op.qubits]:
                         continue
@@ -211,139 +204,236 @@ class SimulatorBase(
                         measured[op.qubits] = True
                         if all_measurements_are_terminal:
                             continue
-                        if self._ignore_measurement_results:
-                            op = ops.phase_damp(1).on(*op.qubits)
 
                     # Simulate the operation
-                    sim_state.apply_operation(op)
+                    protocols.act_on(op, sim_state)
                 except TypeError:
                     raise TypeError(f"{self.__class__.__name__} doesn't support {op!r}")
 
-            step_result = self._create_step_result(sim_state)
-            yield step_result
-            sim_state = step_result._sim_state
-            sim_state.log_of_measurement_results.clear()
+            yield self._create_step_result(sim_state)
 
     def _run(
-        self, circuit: circuits.Circuit, param_resolver: study.ParamResolver, repetitions: int
-    ) -> Dict[str, np.ndarray]:
+        self, circuit: cirq.AbstractCircuit, param_resolver: cirq.ParamResolver, repetitions: int
+    ) -> dict[str, np.ndarray]:
         """See definition in `cirq.SimulatesSamples`."""
-        if self._ignore_measurement_results:
-            raise ValueError("run() is not supported when ignore_measurement_results = True")
-
         param_resolver = param_resolver or study.ParamResolver({})
         resolved_circuit = protocols.resolve_parameters(circuit, param_resolver)
         check_all_resolved(resolved_circuit)
         qubits = tuple(sorted(resolved_circuit.all_qubits()))
-        act_on_args = self._create_act_on_args(0, qubits)
+        sim_state = self._create_simulation_state(0, qubits)
 
         prefix, general_suffix = (
             split_into_matching_protocol_then_general(resolved_circuit, self._can_be_in_run_prefix)
             if self._can_be_in_run_prefix(self.noise)
             else (resolved_circuit[0:0], resolved_circuit)
         )
-        step_result = None
-        for step_result in self._core_iterator(
-            circuit=prefix,
-            sim_state=act_on_args,
-        ):
+        step_result: TStepResultBase | None = None
+        for step_result in self._core_iterator(circuit=prefix, sim_state=sim_state):
             pass
+        assert step_result is not None
 
         general_ops = list(general_suffix.all_operations())
         if all(isinstance(op.gate, ops.MeasurementGate) for op in general_ops):
             for step_result in self._core_iterator(
-                circuit=general_suffix,
-                sim_state=act_on_args,
-                all_measurements_are_terminal=True,
+                circuit=general_suffix, sim_state=sim_state, all_measurements_are_terminal=True
             ):
                 pass
             assert step_result is not None
             measurement_ops = [cast(ops.GateOperation, op) for op in general_ops]
-            return step_result.sample_measurement_ops(measurement_ops, repetitions, seed=self._prng)
-
-        measurements: Dict[str, List[np.ndarray]] = {}
-        for i in range(repetitions):
-            all_step_results = self._core_iterator(
-                general_suffix,
-                sim_state=act_on_args.copy() if i < repetitions - 1 else act_on_args,
+            return step_result.sample_measurement_ops(
+                measurement_ops, repetitions, seed=self._prng, _allow_repeated=True
             )
-            for step_result in all_step_results:
-                for k, v in step_result.measurements.items():
-                    if k not in measurements:
-                        measurements[k] = []
-                    measurements[k].append(np.array(v, dtype=np.uint8))
-        return {k: np.array(v) for k, v in measurements.items()}
 
-    def _create_act_on_args(
+        records: dict[cirq.MeasurementKey, list[Sequence[Sequence[int]]]] = {}
+        for i in range(repetitions):
+            for step_result in self._core_iterator(
+                general_suffix,
+                sim_state=(
+                    sim_state.copy(deep_copy_buffers=False) if i < repetitions - 1 else sim_state
+                ),
+            ):
+                pass
+            for k, r in step_result._classical_data.records.items():
+                if k not in records:
+                    records[k] = []
+                records[k].append(r)
+            for k, cr in step_result._classical_data.channel_records.items():
+                if k not in records:
+                    records[k] = []
+                records[k].append([cr])
+
+        def pad_evenly(results: Sequence[Sequence[Sequence[int]]]):
+            largest = max(len(result) for result in results)
+            xs = np.zeros((len(results), largest, len(results[0][0])), dtype=np.uint8)
+            for i, result in enumerate(results):
+                xs[i, 0 : len(result), :] = result
+            return xs
+
+        return {str(k): pad_evenly(v) for k, v in records.items()}
+
+    def simulate_sweep_iter(
         self,
-        initial_state: Any,
-        qubits: Sequence['cirq.Qid'],
-    ) -> OperationTarget[TActOnArgs]:
-        if isinstance(initial_state, OperationTarget):
+        program: cirq.AbstractCircuit,
+        params: cirq.Sweepable,
+        qubit_order: cirq.QubitOrderOrList = ops.QubitOrder.DEFAULT,
+        initial_state: Any = None,
+    ) -> Iterator[TSimulationTrialResult]:
+        """Simulates the supplied Circuit.
+
+        This particular implementation overrides the base implementation such
+        that an unparameterized prefix circuit is simulated and fed into the
+        parameterized suffix circuit.
+
+        Args:
+            program: The circuit to simulate.
+            params: Parameters to run with the program.
+            qubit_order: Determines the canonical ordering of the qubits. This
+                is often used in specifying the initial state, i.e. the
+                ordering of the computational basis states.
+            initial_state: The initial state for the simulation. This can be
+                either a raw state or an `SimulationStateBase`. The form of the
+                raw state depends on the simulation implementation. See
+                documentation of the implementing class for details.
+
+        Returns:
+            List of SimulationTrialResults for this run, one for each
+            possible parameter resolver.
+        """
+
+        def sweep_prefixable(op: cirq.Operation):
+            return self._can_be_in_run_prefix(op) and not protocols.is_parameterized(op)
+
+        qubits = ops.QubitOrder.as_qubit_order(qubit_order).order_for(program.all_qubits())
+        initial_state = 0 if initial_state is None else initial_state
+        sim_state = self._create_simulation_state(initial_state, qubits)
+        prefix, suffix = (
+            split_into_matching_protocol_then_general(program, sweep_prefixable)
+            if self._can_be_in_run_prefix(self.noise)
+            else (program[0:0], program)
+        )
+        step_result: TStepResultBase | None = None
+        for step_result in self._core_iterator(circuit=prefix, sim_state=sim_state):
+            pass
+        assert step_result is not None
+        sim_state = step_result._sim_state
+        yield from super().simulate_sweep_iter(suffix, params, qubit_order, sim_state)
+
+    def _create_simulation_state(
+        self, initial_state: Any, qubits: Sequence[cirq.Qid]
+    ) -> SimulationStateBase[TSimulationState]:
+        if isinstance(initial_state, SimulationStateBase):
             return initial_state
 
-        log: Dict[str, Any] = {}
+        classical_data = value.ClassicalDataDictionaryStore()
         if self._split_untangled_states:
-            args_map: Dict[Optional['cirq.Qid'], TActOnArgs] = {}
+            args_map: dict[cirq.Qid | None, TSimulationState] = {}
             if isinstance(initial_state, int):
                 for q in reversed(qubits):
-                    args_map[q] = self._create_partial_act_on_args(
+                    args_map[q] = self._create_partial_simulation_state(
                         initial_state=initial_state % q.dimension,
                         qubits=[q],
-                        logs=log,
+                        classical_data=classical_data,
                     )
                     initial_state = int(initial_state / q.dimension)
             else:
-                args = self._create_partial_act_on_args(
-                    initial_state=initial_state,
-                    qubits=qubits,
-                    logs=log,
+                args = self._create_partial_simulation_state(
+                    initial_state=initial_state, qubits=qubits, classical_data=classical_data
                 )
                 for q in qubits:
                     args_map[q] = args
-            args_map[None] = self._create_partial_act_on_args(0, (), log)
-            return ActOnArgsContainer(args_map, qubits, self._split_untangled_states, log)
+            args_map[None] = self._create_partial_simulation_state(0, (), classical_data)
+            return SimulationProductState(
+                args_map, qubits, self._split_untangled_states, classical_data=classical_data
+            )
         else:
-            return self._create_partial_act_on_args(
-                initial_state=initial_state,
-                qubits=qubits,
-                logs=log,
+            return self._create_partial_simulation_state(
+                initial_state=initial_state, qubits=qubits, classical_data=classical_data
             )
 
 
-class StepResultBase(Generic[TSimulatorState, TActOnArgs], StepResult[TSimulatorState], abc.ABC):
+class StepResultBase(
+    Generic[TSimulationState], StepResult[SimulationStateBase[TSimulationState]], abc.ABC
+):
     """A base class for step results."""
 
-    def __init__(
-        self,
-        sim_state: OperationTarget[TActOnArgs],
-    ):
+    def __init__(self, sim_state: SimulationStateBase[TSimulationState]):
         """Initializes the step result.
 
         Args:
-            sim_state: The `OperationTarget` for this step.
+            sim_state: The `SimulationStateBase` for this step.
         """
-        self._sim_state = sim_state
-        self._merged_sim_state_cache: Optional[TActOnArgs] = None
-        super().__init__(sim_state.log_of_measurement_results)
+        super().__init__(sim_state)
+        self._merged_sim_state_cache: TSimulationState | None = None
         qubits = sim_state.qubits
         self._qubits = qubits
         self._qubit_mapping = {q: i for i, q in enumerate(qubits)}
         self._qubit_shape = tuple(q.dimension for q in qubits)
+        self._classical_data = sim_state.classical_data
 
     def _qid_shape_(self):
         return self._qubit_shape
 
     @property
-    def _merged_sim_state(self):
+    def _merged_sim_state(self) -> TSimulationState:
         if self._merged_sim_state_cache is None:
             self._merged_sim_state_cache = self._sim_state.create_merged_state()
         return self._merged_sim_state_cache
 
     def sample(
         self,
-        qubits: List[ops.Qid],
+        qubits: list[cirq.Qid],
         repetitions: int = 1,
-        seed: 'cirq.RANDOM_STATE_OR_SEED_LIKE' = None,
+        seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
     ) -> np.ndarray:
         return self._sim_state.sample(qubits, repetitions, seed)
+
+
+class SimulationTrialResultBase(
+    SimulationTrialResult[SimulationStateBase[TSimulationState]], Generic[TSimulationState], abc.ABC
+):
+    """A base class for trial results."""
+
+    def __init__(
+        self,
+        params: study.ParamResolver,
+        measurements: dict[str, np.ndarray],
+        final_simulator_state: cirq.SimulationStateBase[TSimulationState],
+    ) -> None:
+        """Initializes the `SimulationTrialResultBase` class.
+
+        Args:
+            params: A ParamResolver of settings used for this result.
+            measurements: A dictionary from measurement gate key to measurement
+                results. Measurement results are a numpy ndarray of actual
+                boolean measurement results (ordered by the qubits acted on by
+                the measurement gate.)
+            final_simulator_state: The final simulator state of the system after the
+                trial finishes.
+        """
+        super().__init__(params, measurements, final_simulator_state=final_simulator_state)
+        self._merged_sim_state_cache: TSimulationState | None = None
+
+    def get_state_containing_qubit(self, qubit: cirq.Qid) -> TSimulationState:
+        """Returns the independent state space containing the qubit.
+
+        Args:
+            qubit: The qubit whose state space is required.
+
+        Returns:
+            The state space containing the qubit."""
+        return self._final_simulator_state[qubit]
+
+    def _get_substates(self) -> Sequence[TSimulationState]:
+        state = self._final_simulator_state
+        if isinstance(state, SimulationProductState):
+            substates: dict[TSimulationState, int] = {}
+            for q in state.qubits:
+                substates[self.get_state_containing_qubit(q)] = 0
+            substates[state[None]] = 0
+            return tuple(substates.keys())
+        return [state.create_merged_state()]
+
+    def _get_merged_sim_state(self) -> TSimulationState:
+        if self._merged_sim_state_cache is None:
+            self._merged_sim_state_cache = self._final_simulator_state.create_merged_state()
+        return self._merged_sim_state_cache

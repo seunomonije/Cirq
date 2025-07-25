@@ -12,14 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from math import exp
-from typing import Dict, Sequence
+from typing import Any, Sequence, TYPE_CHECKING
 
 import cirq
+from cirq._compat import proper_repr
 from cirq.devices.noise_model import validate_all_measurements
-from cirq_google import engine
+
+if TYPE_CHECKING:
+    from cirq_google.engine import calibration
 
 
+@cirq.value_equality()
 class PerQubitDepolarizingWithDampedReadoutNoiseModel(cirq.NoiseModel):
     """NoiseModel with T1 decay on gates and damping/bitflip on measurement.
 
@@ -33,9 +39,9 @@ class PerQubitDepolarizingWithDampedReadoutNoiseModel(cirq.NoiseModel):
 
     def __init__(
         self,
-        depol_probs: Dict[cirq.Qid, float] = None,
-        bitflip_probs: Dict[cirq.Qid, float] = None,
-        decay_probs: Dict[cirq.Qid, float] = None,
+        depol_probs: dict[cirq.Qid, float] | None = None,
+        bitflip_probs: dict[cirq.Qid, float] | None = None,
+        decay_probs: dict[cirq.Qid, float] | None = None,
     ):
         """A depolarizing noise model with damped readout error.
 
@@ -60,6 +66,26 @@ class PerQubitDepolarizingWithDampedReadoutNoiseModel(cirq.NoiseModel):
         self.depol_probs = depol_probs
         self.bitflip_probs = bitflip_probs
         self.decay_probs = decay_probs
+
+    def _value_equality_values_(self) -> Any:
+        return (
+            _sorted_items_or_none(self.depol_probs),
+            _sorted_items_or_none(self.bitflip_probs),
+            _sorted_items_or_none(self.decay_probs),
+        )
+
+    def __repr__(self) -> str:
+        prob_args_repr = []
+        if self.depol_probs is not None:
+            prob_args_repr.append(f'depol_probs={proper_repr(self.depol_probs)}')
+        if self.bitflip_probs is not None:
+            prob_args_repr.append(f'bitflip_probs={proper_repr(self.bitflip_probs)}')
+        if self.decay_probs is not None:
+            prob_args_repr.append(f'decay_probs={proper_repr(self.decay_probs)}')
+        return (
+            'cirq_google.experimental.noise_models.'
+            f'PerQubitDepolarizingWithDampedReadoutNoiseModel({", ".join(prob_args_repr)})'
+        )
 
     def noisy_moment(self, moment: cirq.Moment, system_qubits: Sequence[cirq.Qid]) -> cirq.OP_TREE:
         if self.is_virtual_moment(moment):
@@ -92,9 +118,30 @@ class PerQubitDepolarizingWithDampedReadoutNoiseModel(cirq.NoiseModel):
                     )
             return moments
 
+    def _json_dict_(self) -> dict[str, tuple[tuple[cirq.Qid, float], ...] | None]:
+        return {
+            'depol_probs': _sorted_items_or_none(self.depol_probs),
+            'bitflip_probs': _sorted_items_or_none(self.bitflip_probs),
+            'decay_probs': _sorted_items_or_none(self.decay_probs),
+        }
+
+    @classmethod
+    def _from_json_dict_(cls, depol_probs, bitflip_probs, decay_probs, **kwargs):
+        return cls(
+            depol_probs=None if depol_probs is None else dict(depol_probs),
+            bitflip_probs=None if bitflip_probs is None else dict(bitflip_probs),
+            decay_probs=None if decay_probs is None else dict(decay_probs),
+        )
+
+
+def _sorted_items_or_none(
+    d: dict[cirq.Qid, float] | None,
+) -> tuple[tuple[cirq.Qid, float], ...] | None:
+    return tuple(sorted(d.items())) if d is not None else None
+
 
 def simple_noise_from_calibration_metrics(
-    calibration: engine.Calibration,
+    calibration: calibration.Calibration,
     depol_noise: bool = False,
     damping_noise: bool = False,
     readout_decay_noise: bool = False,
@@ -117,13 +164,17 @@ def simple_noise_from_calibration_metrics(
     Returns:
         A PerQubitDepolarizingWithDampedReadoutNoiseModel with error
             probabilities generated from the provided calibration data.
+    Raises:
+        NotImplementedError: If `damping_noise` is True, as this is not yet
+            supported.
+        ValueError: If none of the noises is set to True.
     """
     if not any([depol_noise, damping_noise, readout_decay_noise, readout_error_noise]):
         raise ValueError('At least one error type must be specified.')
     assert calibration is not None
-    depol_probs: Dict[cirq.Qid, float] = {}
-    readout_decay_probs: Dict[cirq.Qid, float] = {}
-    readout_error_probs: Dict[cirq.Qid, float] = {}
+    depol_probs: dict[cirq.Qid, float] = {}
+    readout_decay_probs: dict[cirq.Qid, float] = {}
+    readout_error_probs: dict[cirq.Qid, float] = {}
 
     if depol_noise:
         # In the single-qubit case, Pauli error and the depolarization fidelity

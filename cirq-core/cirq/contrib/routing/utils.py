@@ -12,23 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import operator
-from typing import Callable, Iterable, List, TYPE_CHECKING
 import re
+from typing import Callable, Iterable, TYPE_CHECKING
 
 import networkx as nx
 
-from cirq import circuits, ops
 import cirq.contrib.acquaintance as cca
-from cirq.contrib.routing.swap_network import SwapNetwork
+from cirq import circuits, ops
+from cirq.contrib.circuitdag import CircuitDag
 
 if TYPE_CHECKING:
     import cirq
+    from cirq.contrib.routing import SwapNetwork
 
 BINARY_OP_PREDICATE = Callable[[ops.Operation, ops.Operation], bool]
 
 
-def get_time_slices(dag: circuits.CircuitDag) -> List[nx.Graph]:
+def get_time_slices(dag: CircuitDag) -> list[nx.Graph]:
     """Slices the DAG into logical graphs.
 
     Each time slice is a graph whose vertices are qubits and whose edges
@@ -60,7 +63,7 @@ def is_valid_routing(
     swap_network: SwapNetwork,
     *,
     equals: BINARY_OP_PREDICATE = operator.eq,
-    can_reorder: BINARY_OP_PREDICATE = circuits.circuit_dag._disjoint_qubits,
+    can_reorder: BINARY_OP_PREDICATE = lambda op1, op2: not set(op1.qubits) & set(op2.qubits),
 ) -> bool:
     """Determines whether a swap network is consistent with a given circuit.
 
@@ -71,8 +74,11 @@ def is_valid_routing(
             `operator.eq`.
         can_reorder: A predicate that determines if two operations may be
             reordered.
+
+    Raises:
+        ValueError: If equals operator or can_reorder throws a ValueError.
     """
-    circuit_dag = circuits.CircuitDag.from_circuit(circuit, can_reorder=can_reorder)
+    circuit_dag = CircuitDag.from_circuit(circuit, can_reorder=can_reorder)
     logical_operations = swap_network.get_logical_operations()
     try:
         return cca.is_topologically_sorted(circuit_dag, logical_operations, equals)
@@ -82,7 +88,7 @@ def is_valid_routing(
         raise
 
 
-def get_circuit_connectivity(circuit: 'cirq.Circuit') -> nx.Graph:
+def get_circuit_connectivity(circuit: cirq.Circuit) -> nx.Graph:
     """Return a graph of all 2q interactions in a circuit.
 
     Nodes are qubits and undirected edges correspond to any two-qubit
@@ -92,8 +98,7 @@ def get_circuit_connectivity(circuit: 'cirq.Circuit') -> nx.Graph:
     for op in circuit.all_operations():
         n_qubits = len(op.qubits)
         if n_qubits > 2:
-            # coverage: ignore
-            raise ValueError(
+            raise ValueError(  # pragma: no cover
                 f"Cannot build a graph out of a circuit that "
                 f"contains {n_qubits}-qubit operations"
             )

@@ -11,14 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List, Dict, Sequence, Any
+
+from __future__ import annotations
+
+from typing import Any, Sequence
 
 import cirq
 import cirq_pasqal
 
 
 class PasqalNoiseModel(cirq.devices.NoiseModel):
-    """A noise model for Pasqal neutral atom device """
+    """A noise model for Pasqal neutral atom device"""
 
     def __init__(self, device: cirq.devices.Device):
         self.noise_op_dict = self.get_default_noise_dict()
@@ -30,24 +33,24 @@ class PasqalNoiseModel(cirq.devices.NoiseModel):
             )
         self.device = device
 
-    def get_default_noise_dict(self) -> Dict[str, Any]:
+    def get_default_noise_dict(self) -> dict[str, Any]:
         """Returns the current noise parameters"""
         default_noise_dict = {
-            str(cirq.ops.YPowGate()): cirq.ops.depolarize(1e-2),
-            str(cirq.ops.ZPowGate()): cirq.ops.depolarize(1e-2),
-            str(cirq.ops.XPowGate()): cirq.ops.depolarize(1e-2),
-            str(cirq.ops.PhasedXPowGate(phase_exponent=0)): cirq.ops.depolarize(1e-2),
-            str(cirq.ops.HPowGate(exponent=1)): cirq.ops.depolarize(1e-2),
-            str(cirq.ops.CNotPowGate(exponent=1)): cirq.ops.depolarize(3e-2),
-            str(cirq.ops.CZPowGate(exponent=1)): cirq.ops.depolarize(3e-2),
-            str(cirq.ops.CCXPowGate(exponent=1)): cirq.ops.depolarize(8e-2),
-            str(cirq.ops.CCZPowGate(exponent=1)): cirq.ops.depolarize(8e-2),
+            str(cirq.YPowGate()): cirq.depolarize(1e-2),
+            str(cirq.ZPowGate()): cirq.depolarize(1e-2),
+            str(cirq.XPowGate()): cirq.depolarize(1e-2),
+            str(cirq.PhasedXPowGate(phase_exponent=0)): cirq.depolarize(1e-2),
+            str(cirq.HPowGate(exponent=1)): cirq.depolarize(1e-2),
+            str(cirq.CNotPowGate(exponent=1)): cirq.depolarize(3e-2),
+            str(cirq.CZPowGate(exponent=1)): cirq.depolarize(3e-2),
+            str(cirq.CCXPowGate(exponent=1)): cirq.depolarize(8e-2),
+            str(cirq.CCZPowGate(exponent=1)): cirq.depolarize(8e-2),
         }
         return default_noise_dict
 
     def noisy_moment(
-        self, moment: cirq.ops.Moment, system_qubits: Sequence[cirq.ops.Qid]
-    ) -> List[cirq.ops.Operation]:
+        self, moment: cirq.Moment, system_qubits: Sequence[cirq.Qid]
+    ) -> list[cirq.Operation]:
         """Returns a list of noisy moments.
         The model includes
         - Depolarizing noise with gate-dependent strength
@@ -60,20 +63,25 @@ class PasqalNoiseModel(cirq.devices.NoiseModel):
         noise_list = []
         for op in moment:
             op_str = self.get_op_string(op)
-            noise_op = self.noise_op_dict.get(op_str, cirq.ops.depolarize(5e-2))
+            noise_op = self.noise_op_dict.get(op_str, cirq.depolarize(5e-2))
             for qubit in op.qubits:
                 noise_list.append(noise_op.on(qubit))
         return list(moment) + noise_list
 
-    def get_op_string(self, cirq_op: cirq.ops.Operation) -> str:
-        """Find the string representation for a given operation
+    def get_op_string(self, cirq_op: cirq.Operation) -> str:
+        """Find the string representation for a given operation.
+
         Args:
-            cirq_op: one cirq operation
+            cirq_op: A cirq operation.
+
         Returns:
-            String representing the gate operations
+            String representing the gate operations.
+
+        Raises:
+            ValueError: If the operations gate is not supported.
         """
         if not self.device.is_pasqal_device_op(cirq_op) or isinstance(
-            cirq_op.gate, cirq.ops.MeasurementGate
+            cirq_op.gate, cirq.MeasurementGate
         ):
             raise ValueError('Got unknown operation:', cirq_op)
 

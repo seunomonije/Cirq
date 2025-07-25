@@ -41,12 +41,12 @@ cd "${repo_dir}"
 
 PROJECT_NAME=cirq-core/cirq
 
-ACTUAL_VERSION_LINE=$(cat "${PROJECT_NAME}/_version.py" | tail -n 1)
-ACTUAL_VERSION=`echo $ACTUAL_VERSION_LINE | cut -d'"' -f 2`
+ACTUAL_VERSION_LINE=$(tail -n 1 "${PROJECT_NAME}/_version.py")
+ACTUAL_VERSION=$(echo "$ACTUAL_VERSION_LINE" | cut -d'"' -f 2)
 
-if [[ ${ACTUAL_VERSION} == *"dev" ]]; then
-  echo "${ACTUAL_VERSION}$(date "+%Y%m%d%H%M%S")"
+if [[ ${ACTUAL_VERSION} == *"dev0" ]]; then
+  echo "${ACTUAL_VERSION%0}$(date "+%Y%m%d%H%M%S")"
 else
-  echo "Version doesn't end in dev: ${ACTUAL_VERSION_LINE}" >&2
+  echo "Version doesn't end in dev0: ${ACTUAL_VERSION_LINE}" >&2
   exit 1
 fi

@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright 2019 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +30,7 @@ Usage:
                   imported
 """
 
-from typing import List
+from __future__ import annotations
 
 import argparse
 import collections
@@ -115,8 +113,8 @@ def verify_import_tree(depth: int = 1, track_others: bool = False, timeit: bool 
     fail_list = []
     start_times = {}
     load_times = {}
-    current_path: List[str] = []
-    currently_running_paths: List[List[str]] = [[]]
+    current_path: list[str] = []
+    currently_running_paths: list[list[str]] = [[]]
     import_depth = 0
     indent = ' ' * 2
 
@@ -177,7 +175,7 @@ def verify_import_tree(depth: int = 1, track_others: bool = False, timeit: bool 
     project_dir = os.path.dirname(os.path.dirname(__file__))
     cirq_dir = os.path.join(project_dir, 'cirq')
     sys.path.append(cirq_dir)  # Put cirq/_import.py in the path.
-    from cirq._import import wrap_module_executions  # type: ignore
+    from cirq._import import wrap_module_executions
 
     sys.path[:] = orig_path  # Restore the path.
 
@@ -185,7 +183,7 @@ def verify_import_tree(depth: int = 1, track_others: bool = False, timeit: bool 
     # note that with the cirq.google injection we do change the metapath
     with wrap_module_executions('' if track_others else 'cirq', wrap_module, after_exec, False):
         # Import cirq with instrumentation
-        import cirq  # pylint: disable=unused-import
+        pass
 
     sys.path[:] = orig_path  # Restore the path.
 
@@ -208,16 +206,14 @@ def verify_import_tree(depth: int = 1, track_others: bool = False, timeit: bool 
 FAIL_EXIT_CODE = 65
 
 
-def test_no_circular_imports():
+def test_no_circular_imports() -> None:
     """Runs the test in a subprocess because cirq has already been imported
     before in an earlier test but this test needs to control the import process.
     """
     status = subprocess.call([sys.executable, __file__])
-    if status == FAIL_EXIT_CODE:
-        # coverage: ignore
+    if status == FAIL_EXIT_CODE:  # pragma: no cover
         raise Exception('Invalid import. See captured output for details.')
-    elif status != 0:
-        # coverage: ignore
+    elif status != 0:  # pragma: no cover
         raise RuntimeError('Error in subprocess')
 
 

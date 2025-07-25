@@ -12,55 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A recursive type describing trees of operations, and utility methods for it.
-"""
+"""A recursive type describing trees of operations, and utility methods for it."""
 
-from typing import Callable, Iterable, Iterator, NoReturn, Union
-from typing_extensions import Protocol
+from __future__ import annotations
+
+from typing import Callable, Iterable, Iterator, NoReturn, TYPE_CHECKING
 
 from cirq._doc import document
-from cirq.ops.moment import Moment
+from cirq._import import LazyLoader
 from cirq.ops.raw_types import Operation
 
+if TYPE_CHECKING:
+    import cirq
 
-class OpTree(Protocol):
-    """The recursive type consumed by circuit builder methods.
-
-    An OpTree is a type protocol, satisfied by anything that can be recursively
-    flattened into Operations. We also define the Union type OP_TREE which
-    can be an OpTree or just a single Operation.
-
-    For example:
-    - An Operation is an OP_TREE all by itself.
-    - A list of operations is an OP_TREE.
-    - A list of tuples of operations is an OP_TREE.
-    - A list with a mix of operations and lists of operations is an OP_TREE.
-    - A generator yielding operations is an OP_TREE.
-
-    Note: once mypy supports recursive types this could be defined as an alias:
-
-    OP_TREE = Union[Operation, Iterable['OP_TREE']]
-
-    See: https://github.com/python/mypy/issues/731
-    """
-
-    def __iter__(self) -> Iterator[Union[Operation, 'OpTree']]:
-        pass
+moment = LazyLoader("moment", globals(), "cirq.circuits.moment")
 
 
-OP_TREE = Union[Operation, OpTree]
+OP_TREE = Operation | Iterable['OP_TREE']
 document(
-    OP_TREE,  # type: ignore
+    OP_TREE,
     """An operation or nested collections of operations.
 
     Here are some examples of things that can be given to a method that takes a
     `cirq.OP_TREE` argument:
 
     - A single operation (a `cirq.Operation`).
-    - A list of operations (a `List[cirq.Operation]`).
-    - A list of lists of operations (a `List[List[cirq.Operation]]`).
+    - A list of operations (a `list[cirq.Operation]`).
+    - A list of lists of operations (a `list[list[cirq.Operation]]`).
     - A list mixing operations and generators of operations
-        (a `List[Union[cirq.Operation, Iterator[cirq.Operation]]]`).
+        (a `list[cirq.Operation | Iterator[cirq.Operation]]`).
     - Generally anything that can be iterated, and its items iterated, and
         so forth recursively until a bottom layer of operations is found.
     """,
@@ -69,7 +49,7 @@ document(
 
 def flatten_op_tree(
     root: OP_TREE, preserve_moments: bool = False
-) -> Iterator[Union[Operation, Moment]]:
+) -> Iterator[Operation | cirq.Moment]:
     """Performs an in-order iteration of the operations (leaves) in an OP_TREE.
 
     Args:
@@ -110,7 +90,7 @@ def flatten_to_ops(root: OP_TREE) -> Iterator[Operation]:
         _bad_op_tree(root)
 
 
-def flatten_to_ops_or_moments(root: OP_TREE) -> Iterator[Union[Operation, Moment]]:
+def flatten_to_ops_or_moments(root: OP_TREE) -> Iterator[Operation | cirq.Moment]:
     """Performs an in-order iteration OP_TREE, yielding ops and moments.
 
     Args:
@@ -122,7 +102,7 @@ def flatten_to_ops_or_moments(root: OP_TREE) -> Iterator[Union[Operation, Moment
     Raises:
         TypeError: root isn't a valid OP_TREE.
     """
-    if isinstance(root, (Operation, Moment)):
+    if isinstance(root, (Operation, moment.Moment)):
         yield root
     elif isinstance(root, Iterable) and not isinstance(root, str):
         for subtree in root:
@@ -157,7 +137,7 @@ def transform_op_tree(
     if isinstance(root, Operation):
         return op_transformation(root)
 
-    if preserve_moments and isinstance(root, Moment):
+    if preserve_moments and isinstance(root, moment.Moment):
         return root
 
     if isinstance(root, Iterable) and not isinstance(root, str):

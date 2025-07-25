@@ -14,68 +14,68 @@
 
 # ========================== ISOLATED NOTEBOOK TESTS ============================================
 #
-# In these tests are only changed notebooks are tested. It is assumed that notebooks install cirq
-# conditionally if they can't import cirq. This installation path is the main focus and it is
-# exercised in an isolated virtual environment for each notebook. This is also the path that is
-# tested in the devsite workflows, these tests meant to provide earlier feedback.
+# It is assumed that notebooks install cirq conditionally if they can't import cirq. This
+# installation path is the main focus and it is exercised in an isolated virtual environment for
+# each notebook. This is also the path that is tested in the devsite workflows, these tests meant
+# to provide earlier feedback.
 #
 # In case the dev environment changes or this particular file changes, all notebooks are executed!
 # This can take a long time and even lead to timeout on Github Actions, hence partitioning of the
 # tests is possible, via setting the NOTEBOOK_PARTITIONS env var to e.g. 5, and then passing to
 # pytest the `-k partition-0` or `-k partition-1`, etc. argument to limit to the given partition.
+
+from __future__ import annotations
+
 import os
+import re
+import shutil
 import subprocess
-import sys
 import warnings
-from typing import Set, List
 
 import pytest
 
 from dev_tools import shell_tools
-from dev_tools.notebooks import list_all_notebooks, filter_notebooks, rewrite_notebook
+from dev_tools.notebooks import filter_notebooks, list_all_notebooks, REPO_ROOT, rewrite_notebook
 
 # these notebooks rely on features that are not released yet
 # after every release we should raise a PR and empty out this list
 # note that these notebooks are still tested in dev_tools/notebook_test.py
 # Please, always indicate in comments the feature used for easier bookkeeping.
 
-NOTEBOOKS_DEPENDING_ON_UNRELEASED_FEATURES: List[str] = [
-    # these all depend on cirq.kraus
-    "docs/protocols.ipynb",
-    "docs/noise.ipynb",
-    "docs/operators_and_observables.ipynb",
-    "docs/tutorials/educators/intro.ipynb",
-    # Cirq web is a new module, notebook will be moved to docs/
-    "cirq-web/bloch_sphere_example.ipynb",
-    "cirq-web/circuit_example.ipynb",
-    # cirq-rigetti is not released yet
-    "docs/tutorials/rigetti/getting_started.ipynb",
+NOTEBOOKS_DEPENDING_ON_UNRELEASED_FEATURES: list[str] = [
+    # Requires `load_device_noise_properties` from #7369
+    'docs/hardware/qubit_picking.ipynb',
+    'docs/simulate/noisy_simulation.ipynb',
+    'docs/simulate/quantum_virtual_machine.ipynb',
+    'docs/simulate/qvm_basic_example.ipynb',
+    # Remove once the renaming of `whitelisted_users` -> `allowlisted_users`
+    # throughout cirq_google is released.
+    'docs/simulate/virtual_engine_interface.ipynb',
 ]
 
 # By default all notebooks should be tested, however, this list contains exceptions to the rule
 # please always add a reason for skipping.
 SKIP_NOTEBOOKS = [
     # skipping vendor notebooks as we don't have auth sorted out
-    "**/aqt/*.ipynb",
-    "**/google/*.ipynb",
-    "**/ionq/*.ipynb",
-    "**/pasqal/*.ipynb",
-    # Rigetti uses local simulation with docker, so should work
-    # if you run into issues locally, run
-    # `docker compose -f cirq-rigetti/docker-compose.test.yaml up`
-    # "**/rigetti/*.ipynb",
-    # skipping fidelity estimation due to
-    # https://github.com/quantumlib/Cirq/issues/3502
-    "examples/*fidelity*",
-    # Also skipping stabilizer code testing.
-    "examples/*stabilizer_code*",
-    # Until openfermion is upgraded, this version of Cirq throws an error
-    "docs/tutorials/educators/chemistry.ipynb",
-] + NOTEBOOKS_DEPENDING_ON_UNRELEASED_FEATURES
-
-# The Rigetti integration requires Python >= 3.7.
-if sys.version_info < (3, 7):
-    SKIP_NOTEBOOKS.append("**/rigetti/*.ipynb")
+    '**/aqt/*.ipynb',
+    '**/azure-quantum/*.ipynb',
+    '**/ionq/*.ipynb',
+    '**/pasqal/*.ipynb',
+    # skipping quantum utility simulation (too large)
+    'examples/advanced/*quantum_utility*',
+    # tutorials that use QCS and arent skipped due to one or more cleared output cells
+    'docs/tutorials/google/identifying_hardware_changes.ipynb',
+    'docs/tutorials/google/echoes.ipynb',
+    # temporary: need to fix QVM metrics and device spec
+    'docs/tutorials/google/spin_echoes.ipynb',
+    'docs/tutorials/google/visualizing_calibration_metrics.ipynb',
+]
+SKIP_NOTEBOOKS += [
+    # notebooks that import the examples module which is not installed with cirq
+    'examples/direct_fidelity_estimation.ipynb',
+    'examples/stabilizer_code.ipynb',
+]
+SKIP_NOTEBOOKS += NOTEBOOKS_DEPENDING_ON_UNRELEASED_FEATURES
 
 # As these notebooks run in an isolated env, we want to minimize dependencies that are
 # installed. We assume colab packages (feel free to add dependencies here that appear in colab, as
@@ -86,21 +86,12 @@ PACKAGES = [
     "papermill",
     "jupyter",
     # assumed to be part of colab
-    "seaborn~=0.11.1",
-    # https://github.com/nteract/papermill/issues/519
-    'ipykernel==5.3.4',
-    # https://github.com/ipython/ipython/issues/12941
-    'ipython==7.22',
-    # to ensure networkx works nicely
-    # https://github.com/networkx/networkx/issues/4718 pinned networkx 2.5.1 to 4.4.2
-    # however, jupyter brings in 5.0.6
-    'decorator<5',
+    "seaborn~=0.12",
 ]
 
 
-# TODO(3577): extract these out to common utilities when we rewrite bash scripts in python
 def _find_base_revision():
-    for rev in ['upstream/master', 'origin/master', 'master']:
+    for rev in ['upstream/main', 'origin/main', 'main']:
         try:
             result = subprocess.run(
                 f'git cat-file -t {rev}'.split(), stdout=subprocess.PIPE, universal_newlines=True
@@ -112,19 +103,22 @@ def _find_base_revision():
     raise ValueError("Can't find a base revision to compare the files with.")
 
 
-def _list_changed_notebooks() -> Set[str]:
+def _list_changed_notebooks() -> list[str]:
     try:
         rev = _find_base_revision()
-        output = subprocess.check_output(f'git diff --diff-filter=d --name-only {rev}'.split())
-        lines = output.decode('utf-8').splitlines()
+        output = subprocess.check_output(
+            f'git diff --merge-base --diff-filter=d --name-only {rev}'.split(),
+            cwd=REPO_ROOT,
+            text=True,
+        )
+        changed_files = [str(REPO_ROOT.joinpath(f)) for f in output.splitlines()]
         # run all tests if this file or any of the dev tool dependencies change
         if any(
-            l
-            for l in lines
-            if l.endswith("isolated_notebook_test.py") or l.startswith("dev_tools/requirements")
+            f.endswith("isolated_notebook_test.py") or "/dev_tools/requirements/" in f
+            for f in changed_files
         ):
             return list_all_notebooks()
-        return set(l for l in lines if l.endswith(".ipynb"))
+        return [f for f in changed_files if f.endswith(".ipynb")]
     except ValueError as e:
         # It would be nicer if we could somehow automatically skip the execution of this completely,
         # however, in order to be able to rely on parallel pytest (xdist) we need parametrization to
@@ -136,7 +130,7 @@ def _list_changed_notebooks() -> Set[str]:
             f"No changed notebooks are tested "
             f"(this is expected in non-notebook tests in CI): {e}"
         )
-        return set()
+        return []
 
 
 def _partitioned_test_cases(notebooks):
@@ -144,13 +138,57 @@ def _partitioned_test_cases(notebooks):
     return [(f"partition-{i%n_partitions}", notebook) for i, notebook in enumerate(notebooks)]
 
 
+def _rewrite_and_run_notebook(notebook_path, cloned_env):
+    notebook_file = os.path.basename(notebook_path)
+    notebook_rel_dir = os.path.dirname(os.path.relpath(notebook_path, REPO_ROOT))
+    out_path = f"out/{notebook_rel_dir}/{notebook_file[:-6]}.out.ipynb"
+    notebook_env = cloned_env("isolated_notebook_tests", *PACKAGES)
+
+    notebook_file = os.path.basename(notebook_path)
+
+    rewritten_notebook_path = rewrite_notebook(notebook_path)
+
+    REPO_ROOT.joinpath("out", notebook_rel_dir).mkdir(parents=True, exist_ok=True)
+    cmd = f"""
+. ./bin/activate
+pip list
+papermill {rewritten_notebook_path} {REPO_ROOT/out_path}"""
+    result = shell_tools.run(
+        cmd,
+        log_run_to_stderr=False,
+        shell=True,
+        check=False,
+        cwd=notebook_env,
+        capture_output=True,
+        # important to get rid of PYTHONPATH specifically, which contains
+        # the Cirq repo path due to check/pytest
+        env={},
+    )
+
+    if result.returncode != 0:
+        print(result.stdout)
+        print(result.stderr)
+        pytest.fail(
+            f"Notebook failure: {notebook_file}, please see {out_path} for the output "
+            f"notebook (in Github Actions, you can download it from the workflow artifact"
+            f" 'notebook-outputs'). \n"
+            f"If this is a new failure in this notebook due to a new change, "
+            f"that is only available in main for now, consider adding "
+            f"`pip install --upgrade cirq~=1.0.dev` "
+            f"instead of `pip install cirq` to this notebook, and exclude it from "
+            f"dev_tools/notebooks/isolated_notebook_test.py."
+        )
+    os.remove(rewritten_notebook_path)
+    shutil.rmtree(notebook_env)
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "partition, notebook_path",
     _partitioned_test_cases(filter_notebooks(_list_changed_notebooks(), SKIP_NOTEBOOKS)),
 )
-def test_notebooks_against_released_cirq(partition, notebook_path, cloned_env):
-    """Tests the notebooks in isolated virtual environments.
+def test_changed_notebooks_against_released_cirq(partition, notebook_path, cloned_env) -> None:
+    """Tests changed notebooks in isolated virtual environments.
 
     In order to speed up the execution of these tests an auxiliary file may be supplied which
     performs substitutions on the notebook to make it faster.
@@ -161,63 +199,43 @@ def test_notebooks_against_released_cirq(partition, notebook_path, cloned_env):
     regular expression, it is considered best practice to not use complicated regular expressions.
     Lines in this file that do not have `->` are ignored.
     """
-    notebook_file = os.path.basename(notebook_path)
-    notebook_rel_dir = os.path.dirname(os.path.relpath(notebook_path, "."))
-    out_path = f"out/{notebook_rel_dir}/{notebook_file[:-6]}.out.ipynb"
-    notebook_env = cloned_env("isolated_notebook_tests", *PACKAGES)
+    _rewrite_and_run_notebook(notebook_path, cloned_env)
 
-    notebook_file = os.path.basename(notebook_path)
 
-    rewritten_notebook_descriptor, rewritten_notebook_path = rewrite_notebook(notebook_path)
+@pytest.mark.weekly
+@pytest.mark.parametrize(
+    "partition, notebook_path",
+    _partitioned_test_cases(filter_notebooks(list_all_notebooks(), SKIP_NOTEBOOKS)),
+)
+def test_all_notebooks_against_released_cirq(partition, notebook_path, cloned_env) -> None:
+    """Tests all notebooks in isolated virtual environments.
 
-    cmd = f"""
-mkdir -p out/{notebook_rel_dir}
-cd {notebook_env}
-. ./bin/activate
-pip list 
-papermill {rewritten_notebook_path} {os.getcwd()}/{out_path}"""
-    stdout, stderr, status = shell_tools.run_shell(
-        cmd=cmd,
-        log_run_to_stderr=False,
-        raise_on_fail=False,
-        out=shell_tools.TeeCapture(),
-        err=shell_tools.TeeCapture(),
-        # important to get rid of PYTHONPATH specifically, which contains
-        # the Cirq repo path due to check/pytest
-        env={},
-    )
-
-    if status != 0:
-        print(stdout)
-        print(stderr)
-        pytest.fail(
-            f"Notebook failure: {notebook_file}, please see {out_path} for the output "
-            f"notebook (in Github Actions, you can download it from the workflow artifact"
-            f" 'notebook-outputs'). \n"
-            f"If this is a new failure in this notebook due to a new change, "
-            f"that is only available in master for now, consider adding `pip install --pre cirq` "
-            f"instead of `pip install cirq` to this notebook, and exclude it from "
-            f"dev_tools/notebooks/isolated_notebook_test.py."
-        )
-
-    if rewritten_notebook_descriptor:
-        os.close(rewritten_notebook_descriptor)
+    See `test_changed_notebooks_against_released_cirq` for more details on
+    notebooks execution.
+    """
+    _rewrite_and_run_notebook(notebook_path, cloned_env)
 
 
 @pytest.mark.parametrize("notebook_path", NOTEBOOKS_DEPENDING_ON_UNRELEASED_FEATURES)
-def test_ensure_unreleased_notebooks_install_cirq_pre(notebook_path):
+def test_ensure_unreleased_notebooks_install_cirq_pre(notebook_path) -> None:
     # utf-8 is important for Windows testing, otherwise characters like ┌──┐ fail on cp1252
     with open(notebook_path, encoding="utf-8") as notebook:
         content = notebook.read()
-        mandatory_lines = [
-            "!pip install --quiet cirq --pre",
-            "Note: this notebook relies on unreleased Cirq features. "
-            "If you want to try these features, make sure you install cirq via "
-            "`pip install cirq --pre`.",
+        mandatory_matches = [
+            r"!pip install --upgrade --quiet cirq(-google)?~=1.0.dev",
+            r"Note: this notebook relies on unreleased Cirq features\. "
+            r"If you want to try these features, make sure you install cirq(-google)? via "
+            r"`pip install --upgrade cirq(-google)?~=1.0.dev`\.",
         ]
 
-        for m in mandatory_lines:
-            assert m in content, (
+        for m in mandatory_matches:
+            assert re.search(m, content), (
                 f"{notebook_path} is marked as NOTEBOOKS_DEPENDING_ON_UNRELEASED_FEATURES, "
-                f"however it is missing the mandatory line:\n{m}"
+                f"however it contains no line matching:\n{m}"
             )
+
+
+def test_skip_notebooks_has_valid_patterns() -> None:
+    """Verify patterns in SKIP_NOTEBOOKS are all valid."""
+    patterns_without_match = [g for g in SKIP_NOTEBOOKS if not any(REPO_ROOT.glob(g))]
+    assert patterns_without_match == []

@@ -14,14 +14,18 @@
 
 """Tool to visualize the results of a study."""
 
-from typing import Union, Optional, Sequence, SupportsFloat
+from __future__ import annotations
+
 import collections
-import numpy as np
+from typing import Sequence, SupportsFloat
+
 import matplotlib.pyplot as plt
+import numpy as np
+
 import cirq.study.result as result
 
 
-def get_state_histogram(result: 'result.Result') -> np.ndarray:
+def get_state_histogram(result: result.Result) -> np.ndarray:
     """Computes a state histogram from a single result with repetitions.
 
     Args:
@@ -32,7 +36,7 @@ def get_state_histogram(result: 'result.Result') -> np.ndarray:
         The state histogram (a numpy array) corresponding to the trial result.
     """
     num_qubits = sum([value.shape[1] for value in result.measurements.values()])
-    states = 2 ** num_qubits
+    states = 2**num_qubits
     values = np.zeros(states)
     # measurements is a dict of {measurement gate key:
     #                            array(repetitions, boolean result)}
@@ -50,14 +54,14 @@ def get_state_histogram(result: 'result.Result') -> np.ndarray:
 
 
 def plot_state_histogram(
-    data: Union['result.Result', collections.Counter, Sequence[SupportsFloat]],
-    ax: Optional['plt.Axis'] = None,
+    data: result.Result | collections.Counter | Sequence[SupportsFloat],
+    ax: plt.Axes | None = None,
     *,
-    tick_label: Optional[Sequence[str]] = None,
-    xlabel: Optional[str] = 'qubit state',
-    ylabel: Optional[str] = 'result count',
-    title: Optional[str] = 'Result State Histogram',
-) -> 'plt.Axis':
+    tick_label: Sequence[str] | None = None,
+    xlabel: str | None = 'qubit state',
+    ylabel: str | None = 'result count',
+    title: str | None = 'Result State Histogram',
+) -> plt.Axes:
     """Plot the state histogram from either a single result with repetitions or
        a histogram computed using `result.histogram()` or a flattened histogram
        of measurement results computed using `get_state_histogram`.
@@ -85,20 +89,24 @@ def plot_state_histogram(
         The axis that was plotted on.
     """
     show_fig = not ax
-    if not ax:
+    if ax is None:
         fig, ax = plt.subplots(1, 1)
     if isinstance(data, result.Result):
         values = get_state_histogram(data)
     elif isinstance(data, collections.Counter):
-        tick_label, values = zip(*sorted(data.items()))
+        tick_label, counts = zip(*sorted(data.items()))
+        values = np.asarray(counts)
     else:
-        values = data
-    if not tick_label:
-        tick_label = np.arange(len(values))
+        values = np.array(data)
+    if tick_label is None:
+        tick_label = [str(i) for i in range(len(values))]
     ax.bar(np.arange(len(values)), values, tick_label=tick_label)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if ylabel:
+        ax.set_ylabel(ylabel)
+    if title:
+        ax.set_title(title)
     if show_fig:
         fig.show()
     return ax

@@ -1,4 +1,4 @@
-# Copyright 2018 The ops Developers
+# Copyright 2018 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,25 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple
+from __future__ import annotations
 
-from cirq import ops, circuits
+from typing import Iterator
 
-from cirq.contrib.paulistring.convert_gate_set import converted_gate_set
+from cirq import circuits, ops, transformers
+from cirq.contrib.paulistring.clifford_target_gateset import CliffordTargetGateset
 
 
 def convert_and_separate_circuit(
-    circuit: circuits.Circuit,
-    leave_cliffords: bool = True,
-    atol: float = 1e-8,
-) -> Tuple[circuits.Circuit, circuits.Circuit]:
-    """Converts any circuit into two circuits where (circuit_left+circuit_right)
-    is equivalent to the given circuit.
+    circuit: circuits.Circuit, leave_cliffords: bool = True, atol: float = 1e-8
+) -> tuple[circuits.Circuit, circuits.Circuit]:
+    """Converts a circuit into two, one made of PauliStringPhasor and the other Clifford gates.
 
     Args:
         circuit: Any Circuit that cirq.google.optimized_for_xmon() supports.
             All gates should either provide a decomposition or have a known one
             or two qubit unitary matrix.
+        leave_cliffords: If set, single qubit rotations in the Clifford group
+                are not converted to SingleQubitCliffordGates.
+        atol: The absolute tolerance for the conversion.
 
     Returns:
         (circuit_left, circuit_right)
@@ -41,8 +42,16 @@ def convert_and_separate_circuit(
         SingleQubitCliffordGate and PauliInteractionGate gates.
         It also contains MeasurementGates if the
         given circuit contains measurements.
+
     """
-    circuit = converted_gate_set(circuit, no_clifford_gates=not leave_cliffords, atol=atol)
+    single_qubit_target = (
+        CliffordTargetGateset.SingleQubitTarget.PAULI_STRING_PHASORS_AND_CLIFFORDS
+        if leave_cliffords
+        else CliffordTargetGateset.SingleQubitTarget.PAULI_STRING_PHASORS
+    )
+    circuit = transformers.optimize_for_target_gateset(
+        circuit, gateset=CliffordTargetGateset(atol=atol, single_qubit_target=single_qubit_target)
+    )
     return pauli_string_half(circuit), regular_half(circuit)
 
 
@@ -60,7 +69,7 @@ def regular_half(circuit: circuits.Circuit) -> circuits.Circuit:
         circuit contains measurements.
     """
     return circuits.Circuit(
-        ops.Moment(op for op in moment.operations if not isinstance(op, ops.PauliStringPhasor))
+        circuits.Moment(op for op in moment.operations if not isinstance(op, ops.PauliStringPhasor))
         for moment in circuit
     )
 
@@ -81,9 +90,10 @@ def pauli_string_half(circuit: circuits.Circuit) -> circuits.Circuit:
     )
 
 
-def _pull_non_clifford_before(circuit: circuits.Circuit) -> ops.OP_TREE:
-    def _iter_ops_range_reversed(moment_end):
-        for i in reversed(range(moment_end)):
+def _pull_non_clifford_before(circuit: circuits.Circuit) -> Iterator[ops.OP_TREE]:
+
+    def _iter_ops_range(moment_end):
+        for i in range(moment_end):
             moment = circuit[i]
             for op in moment.operations:
                 if not isinstance(op, ops.PauliStringPhasor):
@@ -92,5 +102,5 @@ def _pull_non_clifford_before(circuit: circuits.Circuit) -> ops.OP_TREE:
     for i, moment in enumerate(circuit):
         for op in moment.operations:
             if isinstance(op, ops.PauliStringPhasor):
-                ops_to_cross = _iter_ops_range_reversed(i)
-                yield op.pass_operations_over(ops_to_cross)
+                ops_to_cross = _iter_ops_range(i)
+                yield op.conjugated_by(ops_to_cross)

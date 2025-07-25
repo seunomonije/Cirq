@@ -1,13 +1,19 @@
-import cirq
+# pylint: disable=wrong-or-nonexistent-copyright-notice
+
+from __future__ import annotations
+
 import numpy as np
 import pytest
 
+import cirq
 
-def test_kraus_channel_from_channel():
+
+def test_kraus_channel_from_channel() -> None:
     q0 = cirq.LineQubit(0)
     dp = cirq.depolarize(0.1)
     kc = cirq.KrausChannel.from_channel(dp, key='dp')
-    assert cirq.measurement_key(kc) == 'dp'
+    assert cirq.measurement_key_name(kc) == 'dp'
+    cirq.testing.assert_consistent_channel(kc)
 
     circuit = cirq.Circuit(kc.on(q0))
     sim = cirq.Simulator(seed=0)
@@ -18,7 +24,7 @@ def test_kraus_channel_from_channel():
     assert results.measurements['dp'] in range(4)
 
 
-def test_kraus_channel_equality():
+def test_kraus_channel_equality() -> None:
     dp_pt1 = cirq.depolarize(0.1)
     dp_pt2 = cirq.depolarize(0.2)
     kc_a1 = cirq.KrausChannel.from_channel(dp_pt1, key='a')
@@ -32,10 +38,7 @@ def test_kraus_channel_equality():
     assert kc_a1 != kc_b1
     assert kc_a2 != kc_b1
 
-    ops = [
-        np.array([[1, 0], [0, 0]]),
-        np.array([[0, 0], [0, 1]]),
-    ]
+    ops = [np.array([[1, 0], [0, 0]]), np.array([[0, 0], [0, 1]])]
     x_meas = cirq.KrausChannel(ops)
     ops_inv = list(reversed(ops))
     x_meas_inv = cirq.KrausChannel(ops_inv)
@@ -44,16 +47,17 @@ def test_kraus_channel_equality():
     assert x_meas != x_meas_inv
 
 
-def test_kraus_channel_remap_keys():
+def test_kraus_channel_remap_keys() -> None:
     dp = cirq.depolarize(0.1)
     kc = cirq.KrausChannel.from_channel(dp)
     with pytest.raises(TypeError):
-        _ = cirq.measurement_key(kc)
+        _ = cirq.measurement_key_name(kc)
     assert cirq.with_measurement_key_mapping(kc, {'a': 'b'}) is NotImplemented
 
     kc_x = cirq.KrausChannel.from_channel(dp, key='x')
     assert cirq.with_measurement_key_mapping(kc_x, {'a': 'b'}) is kc_x
-    assert cirq.measurement_key(cirq.with_key_path(kc_x, ('path',))) == 'path:x'
+    assert cirq.measurement_key_name(cirq.with_key_path(kc_x, ('path',))) == 'path:x'
+    assert cirq.measurement_key_name(cirq.with_key_path_prefix(kc_x, ('path',))) == 'path:x'
 
     kc_a = cirq.KrausChannel.from_channel(dp, key='a')
     kc_b = cirq.KrausChannel.from_channel(dp, key='b')
@@ -61,15 +65,12 @@ def test_kraus_channel_remap_keys():
     assert cirq.with_measurement_key_mapping(kc_a, {'a': 'b'}) == kc_b
 
 
-def test_kraus_channel_from_kraus():
+def test_kraus_channel_from_kraus() -> None:
     q0 = cirq.LineQubit(0)
     # This is equivalent to an X-basis measurement.
-    ops = [
-        np.array([[1, 1], [1, 1]]) * 0.5,
-        np.array([[1, -1], [-1, 1]]) * 0.5,
-    ]
+    ops = [np.array([[1, 1], [1, 1]]) * 0.5, np.array([[1, -1], [-1, 1]]) * 0.5]
     x_meas = cirq.KrausChannel(ops, key='x_meas')
-    assert cirq.measurement_key(x_meas) == 'x_meas'
+    assert cirq.measurement_key_name(x_meas) == 'x_meas'
 
     circuit = cirq.Circuit(cirq.H(q0), x_meas.on(q0))
     sim = cirq.Simulator(seed=0)
@@ -79,12 +80,9 @@ def test_kraus_channel_from_kraus():
     assert results.measurements['x_meas'] == 0
 
 
-def test_kraus_channel_str():
+def test_kraus_channel_str() -> None:
     # This is equivalent to an X-basis measurement.
-    ops = [
-        np.array([[1, 1], [1, 1]]) * 0.5,
-        np.array([[1, -1], [-1, 1]]) * 0.5,
-    ]
+    ops = [np.array([[1, 1], [1, 1]]) * 0.5, np.array([[1, -1], [-1, 1]]) * 0.5]
     x_meas = cirq.KrausChannel(ops)
     assert (
         str(x_meas)
@@ -101,7 +99,7 @@ def test_kraus_channel_str():
     )
 
 
-def test_kraus_channel_repr():
+def test_kraus_channel_repr() -> None:
     # This is equivalent to an X-basis measurement.
     ops = [
         np.array([[1, 1], [1, 1]], dtype=np.complex64) * 0.5,
@@ -112,20 +110,20 @@ def test_kraus_channel_repr():
         repr(x_meas)
         == """\
 cirq.KrausChannel(kraus_ops=[\
-np.array([[(0.5+0j), (0.5+0j)], [(0.5+0j), (0.5+0j)]], dtype=np.complex64), \
-np.array([[(0.5+0j), (-0.5+0j)], [(-0.5+0j), (0.5+0j)]], dtype=np.complex64)], \
+np.array([[(0.5+0j), (0.5+0j)], [(0.5+0j), (0.5+0j)]], dtype=np.dtype('complex64')), \
+np.array([[(0.5+0j), (-0.5+0j)], [(-0.5+0j), (0.5+0j)]], dtype=np.dtype('complex64'))], \
 key='x_meas')"""
     )
 
 
-def test_empty_ops_fails():
-    ops = []
+def test_empty_ops_fails() -> None:
+    ops: list[np.ndarray] = []
 
     with pytest.raises(ValueError, match='must have at least one operation'):
         _ = cirq.KrausChannel(kraus_ops=ops, key='m')
 
 
-def test_ops_mismatch_fails():
+def test_ops_mismatch_fails() -> None:
     op2 = np.zeros((4, 4))
     op2[1][1] = 1
     ops = [np.array([[1, 0], [0, 0]]), op2]
@@ -134,21 +132,15 @@ def test_ops_mismatch_fails():
         _ = cirq.KrausChannel(kraus_ops=ops, key='m')
 
 
-def test_nonqubit_kraus_ops_fails():
-    ops = [
-        np.array([[1, 0, 0], [0, 0, 0]]),
-        np.array([[0, 0, 0], [0, 1, 0]]),
-    ]
+def test_nonqubit_kraus_ops_fails() -> None:
+    ops = [np.array([[1, 0, 0], [0, 0, 0]]), np.array([[0, 0, 0], [0, 1, 0]])]
 
     with pytest.raises(ValueError, match='Input Kraus ops'):
         _ = cirq.KrausChannel(kraus_ops=ops, key='m')
 
 
-def test_validate():
+def test_validate() -> None:
     # Not quite CPTP.
-    ops = [
-        np.array([[1, 0], [0, 0]]),
-        np.array([[0, 0], [0, 0.9]]),
-    ]
+    ops = [np.array([[1, 0], [0, 0]]), np.array([[0, 0], [0, 0.9]])]
     with pytest.raises(ValueError, match='CPTP map'):
         _ = cirq.KrausChannel(kraus_ops=ops, key='m', validate=True)

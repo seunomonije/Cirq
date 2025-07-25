@@ -1,10 +1,10 @@
-# Copyright 2020 The Cirq developers
+# Copyright 2020 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,21 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Union, Iterable, Dict, TYPE_CHECKING, Tuple
+from __future__ import annotations
 
-from cirq import ops, value
+import dataclasses
+import numbers
+from typing import Iterable, Mapping, TYPE_CHECKING
+
+import sympy
+
+from cirq import ops, protocols, value
 
 if TYPE_CHECKING:
     import cirq
     from cirq.value.product_state import _NamedOneQubitState
 
-    # Workaround for mypy custom dataclasses
-    from dataclasses import dataclass as json_serializable_dataclass
-else:
-    from cirq.protocols import json_serializable_dataclass
 
-
-@json_serializable_dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class InitObsSetting:
     """A pair of initial state and observable.
 
@@ -46,7 +47,7 @@ class InitObsSetting:
             raise ValueError(
                 "`observable`'s qubits should be a subset of those "
                 "found in `init_state`. "
-                "observable qubits: {}. init_state qubits: {}".format(obs_qs, init_qs)
+                f"observable qubits: {obs_qs}. init_state qubits: {init_qs}"
             )
 
     def __str__(self):
@@ -59,8 +60,11 @@ class InitObsSetting:
             f'observable={self.observable!r})'
         )
 
+    def _json_dict_(self):
+        return protocols.dataclass_json_dict(self)
 
-def _max_weight_observable(observables: Iterable[ops.PauliString]) -> Union[None, ops.PauliString]:
+
+def _max_weight_observable(observables: Iterable[ops.PauliString]) -> ops.PauliString | None:
     """Create a new observable that is compatible with all input observables
     and has the maximum non-identity elements.
 
@@ -76,7 +80,7 @@ def _max_weight_observable(observables: Iterable[ops.PauliString]) -> Union[None
     The returned value need not actually be present in the input observables.
     Coefficients from input observables will be dropped.
     """
-    qubit_pauli_map = dict()  # type: Dict[ops.Qid, ops.Pauli]
+    qubit_pauli_map: dict[ops.Qid, ops.Pauli] = {}
     for observable in observables:
         for qubit, pauli in observable.items():
             if qubit in qubit_pauli_map:
@@ -87,7 +91,7 @@ def _max_weight_observable(observables: Iterable[ops.PauliString]) -> Union[None
     return ops.PauliString(qubit_pauli_map)
 
 
-def _max_weight_state(states: Iterable[value.ProductState]) -> Union[None, value.ProductState]:
+def _max_weight_state(states: Iterable[value.ProductState]) -> value.ProductState | None:
     """Create a new state that is compatible with all input states
     and has the maximum weight.
 
@@ -100,7 +104,7 @@ def _max_weight_state(states: Iterable[value.ProductState]) -> Union[None, value
     "+X(0) * -Z(1)". Asking for the max weight state of something like
     [+X(0), +Z(0)] will return None.
     """
-    qubit_state_map = dict()  # type: Dict[ops.Qid, _NamedOneQubitState]
+    qubit_state_map: dict[ops.Qid, _NamedOneQubitState] = {}
     for state in states:
         for qubit, named_state in state:
             if qubit in qubit_state_map:
@@ -111,13 +115,13 @@ def _max_weight_state(states: Iterable[value.ProductState]) -> Union[None, value
     return value.ProductState(qubit_state_map)
 
 
-def zeros_state(qubits: Iterable['cirq.Qid']):
+def zeros_state(qubits: Iterable[cirq.Qid]):
     """Return the ProductState that is |00..00> on all qubits."""
     return value.ProductState({q: value.KET_ZERO for q in qubits})
 
 
 def observables_to_settings(
-    observables: Iterable['cirq.PauliString'], qubits: Iterable['cirq.Qid']
+    observables: Iterable[cirq.PauliString], qubits: Iterable[cirq.Qid]
 ) -> Iterable[InitObsSetting]:
     """Transform an observable to an InitObsSetting initialized in the
     all-zeros state.
@@ -126,25 +130,35 @@ def observables_to_settings(
         yield InitObsSetting(init_state=zeros_state(qubits), observable=observable)
 
 
-def _fix_precision(val: float, precision) -> int:
-    """Convert floating point numbers to (implicitly) fixed point integers.
+def _fix_precision(val: value.Scalar | sympy.Expr, precision) -> int | tuple[int, int]:
+    """Convert floating point or complex numbers to (implicitly) fixed point
+    integers. Complex numbers will return fixed-point (real, imag) tuples.
 
-    Circuit parameters can be floats but we also need to use them as
+    Circuit parameters can be complex but we also need to use them as
     dictionary keys. We secretly use these fixed-precision integers.
     """
-    return int(val * precision)
+    if isinstance(val, sympy.Expr):
+        raise ValueError(f'Cannot convert {val} to fixed precision in observable settings')
+    if isinstance(val, (complex, numbers.Complex)):
+        return int(val.real * precision), int(val.imag * precision)
+    # Pretty much all numbers are instances of numbers.Complex
+    return int(val * precision)  # pragma: no cover
 
 
-def _hashable_param(param_tuples: Iterable[Tuple[str, float]], precision=1e7):
+def _hashable_param(
+    param_tuples: Iterable[tuple[str | sympy.Expr, value.Scalar | sympy.Expr]], precision=1e7
+) -> frozenset[tuple[str, int | tuple[int, int]]]:
     """Hash circuit parameters using fixed precision.
 
-    Circuit parameters can be floats but we also need to use them as
+    Circuit parameters can be complex but we also need to use them as
     dictionary keys. We secretly use these fixed-precision integers.
     """
-    return frozenset((k, _fix_precision(v, precision)) for k, v in param_tuples)
+    return frozenset(
+        (k, _fix_precision(v, precision)) for k, v in param_tuples if isinstance(k, str)
+    )
 
 
-@json_serializable_dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class _MeasurementSpec:
     """An encapsulation of all the specifications for one run of a
     quantum processor.
@@ -155,7 +169,7 @@ class _MeasurementSpec:
     """
 
     max_setting: InitObsSetting
-    circuit_params: Dict[str, float]
+    circuit_params: Mapping[str | sympy.Expr, value.Scalar | sympy.Expr]
 
     def __hash__(self):
         return hash((self.max_setting, _hashable_param(self.circuit_params.items())))
@@ -165,3 +179,6 @@ class _MeasurementSpec:
             f'cirq.work._MeasurementSpec(max_setting={self.max_setting!r}, '
             f'circuit_params={self.circuit_params!r})'
         )
+
+    def _json_dict_(self):
+        return protocols.dataclass_json_dict(self)

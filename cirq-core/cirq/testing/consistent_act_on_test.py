@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from typing import Sequence
 
 import numpy as np
@@ -20,42 +22,42 @@ import pytest
 import cirq
 
 
-class GoodGate(cirq.SingleQubitGate):
+class GoodGate(cirq.testing.SingleQubitGate):
     def _unitary_(self):
         return np.array([[0, 1], [1, 0]])
 
-    def _act_on_(self, args: 'cirq.ActOnArgs', qubits: Sequence['cirq.Qid']):
-        if isinstance(args, cirq.ActOnCliffordTableauArgs):
-            tableau = args.tableau
-            q = args.qubit_map[qubits[0]]
+    def _act_on_(self, sim_state: cirq.SimulationStateBase, qubits: Sequence[cirq.Qid]):
+        if isinstance(sim_state, cirq.CliffordTableauSimulationState):
+            tableau = sim_state.tableau
+            q = sim_state.qubit_map[qubits[0]]
             tableau.rs[:] ^= tableau.zs[:, q]
             return True
         return NotImplemented
 
 
-class BadGate(cirq.SingleQubitGate):
+class BadGate(cirq.testing.SingleQubitGate):
     def _unitary_(self):
         return np.array([[0, 1j], [1, 0]])
 
-    def _act_on_(self, args: 'cirq.ActOnArgs', qubits: Sequence['cirq.Qid']):
-        if isinstance(args, cirq.ActOnCliffordTableauArgs):
-            tableau = args.tableau
-            q = args.qubit_map[qubits[0]]
+    def _act_on_(self, sim_state: cirq.SimulationStateBase, qubits: Sequence[cirq.Qid]):
+        if isinstance(sim_state, cirq.CliffordTableauSimulationState):
+            tableau = sim_state.tableau
+            q = sim_state.qubit_map[qubits[0]]
             tableau.rs[:] ^= tableau.zs[:, q]
             return True
         return NotImplemented
 
 
-class UnimplementedGate(cirq.TwoQubitGate):
+class UnimplementedGate(cirq.testing.TwoQubitGate):
     pass
 
 
-class UnimplementedUnitaryGate(cirq.TwoQubitGate):
+class UnimplementedUnitaryGate(cirq.testing.TwoQubitGate):
     def _unitary_(self):
         return np.array([[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0]])
 
 
-def test_assert_act_on_clifford_tableau_effect_matches_unitary():
+def test_assert_act_on_clifford_tableau_effect_matches_unitary() -> None:
     cirq.testing.assert_all_implemented_act_on_effects_match_unitary(GoodGate())
     cirq.testing.assert_all_implemented_act_on_effects_match_unitary(
         GoodGate().on(cirq.LineQubit(1))

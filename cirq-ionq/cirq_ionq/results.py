@@ -1,4 +1,5 @@
 # Copyright 2020 The Cirq Developers
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -12,8 +13,10 @@
 # limitations under the License.
 """Result types for the IonQ API."""
 
+from __future__ import annotations
+
 import collections
-from typing import Dict, Counter, Optional, Sequence
+from typing import Counter, Sequence
 
 import numpy as np
 
@@ -24,9 +27,11 @@ class QPUResult:
     """The results of running on an IonQ QPU."""
 
     def __init__(
-        self, counts: Dict[int, int], num_qubits: int, measurement_dict: Dict[str, Sequence[int]]
+        self, counts: dict[int, int], num_qubits: int, measurement_dict: dict[str, Sequence[int]]
     ):
-        self._counts = counts
+        # We require a consistent ordering, and here we use bitvector as such.
+        # OrderedDict can be removed in python 3.7, where it is part of the contract.
+        self._counts = collections.OrderedDict(sorted(counts.items()))
         self._num_qubits = num_qubits
         self._measurement_dict = measurement_dict
         self._repetitions = sum(self._counts.values())
@@ -39,8 +44,38 @@ class QPUResult:
         """Returns the number of times the circuit was run."""
         return self._repetitions
 
-    def counts(self, key: Optional[str] = None) -> Counter[int]:
-        """Returns the raw counts of the measurement results.
+    def ordered_results(self, key: str | None = None) -> list[int]:
+        """Returns a list of arbitrarily but consistently ordered results as big endian ints.
+
+        If a key parameter is supplied, these are the counts for the measurement results for
+        the qubits measured by the measurement gate with that key.  If no key is given, these
+        are the measurement results from measuring all qubits in the circuit.
+
+        The value in the returned list is the computational basis state measured for the
+        qubits that have been measured.  This is expressed in big-endian form. For example, if
+        no measurement key is supplied and all qubits are measured, each entry in this returned dict
+        has a bit string where the `cirq.LineQubit`s are expressed in the order:
+            (cirq.LineQubit(0), cirq.LineQubit(1), ..., cirq.LineQubit(n-1))
+        In the case where only `r` qubits are measured corresponding to targets t_0, t_1,...t_{r-1},
+        the bit string corresponds to the order
+            (cirq.LineQubit(t_0), cirq.LineQubit(t_1), ... cirq.LineQubit(t_{r-1}))
+        """
+
+        if key is not None and not key in self._measurement_dict:
+            raise ValueError(
+                f'Measurement key {key} is not a key for a measurement gate in the'
+                'circuit that produced these results.'
+            )
+        targets = self._measurement_dict[key] if key is not None else range(self.num_qubits())
+        result: list[int] = []
+        for value, count in self._counts.items():
+            bits = [(value >> (self.num_qubits() - target - 1)) & 1 for target in targets]
+            bit_value = sum(bit * (1 << i) for i, bit in enumerate(bits[::-1]))
+            result.extend([bit_value] * count)
+        return result
+
+    def counts(self, key: str | None = None) -> Counter[int]:
+        """Returns the processed counts of the measurement results.
 
         If a key parameter is supplied, these are the counts for the measurement results for
         the qubits measured by the measurement gate with that key.  If no key is given, these
@@ -66,29 +101,23 @@ class QPUResult:
                 f'Measurement key {key} is not a key for a measurement gate in the'
                 'circuit that produced these results.'
             )
-        targets = self._measurement_dict[key]
         result: Counter[int] = collections.Counter()
-        for value, count in self._counts.items():
-            bits = [(value >> (self.num_qubits() - target - 1)) & 1 for target in targets]
-            bit_value = sum(bit * (1 << i) for i, bit in enumerate(bits[::-1]))
-            result[bit_value] += count
+        result.update([bit_value for bit_value in self.ordered_results(key)])
         return result
 
-    def measurement_dict(self) -> Dict[str, Sequence[int]]:
+    def measurement_dict(self) -> dict[str, Sequence[int]]:
         """Returns a map from measurement keys to target qubit indices for this measurement."""
         return self._measurement_dict
 
-    def to_cirq_result(
-        self,
-        params: Optional[cirq.ParamResolver] = None,
-    ) -> cirq.Result:
+    def to_cirq_result(self, params: cirq.ParamResolver | None = None) -> cirq.Result:
         """Returns a `cirq.Result` for these results.
 
         `cirq.Result` contains a less dense representation of results than that returned by
         the IonQ API.  Typically these results are also ordered by when they were run, though
         that contract is implicit.  Because the IonQ API does not retain that ordering information,
         the order of these `cirq.Result` objects should *not* be interpetted as representing the
-        order in which the circuit was repeated.
+        order in which the circuit was repeated. Correlations between measurements keys are
+        preserved.
 
         Args:
             params: The `cirq.ParamResolver` used to generate these results.
@@ -107,11 +136,11 @@ class QPUResult:
             )
         measurements = {}
         for key, targets in self.measurement_dict().items():
-            qpu_results = list(self.counts(key).elements())
+            qpu_results = self.ordered_results(key)
             measurements[key] = np.array(
                 list(cirq.big_endian_int_to_bits(x, bit_count=len(targets)) for x in qpu_results)
             )
-        return cirq.Result(params=params or cirq.ParamResolver({}), measurements=measurements)
+        return cirq.ResultDict(params=params or cirq.ParamResolver({}), measurements=measurements)
 
     def __eq__(self, other):
         if not isinstance(other, QPUResult):
@@ -136,9 +165,9 @@ class SimulatorResult:
 
     def __init__(
         self,
-        probabilities: Dict[int, float],
+        probabilities: dict[int, float],
         num_qubits: int,
-        measurement_dict: Dict[str, Sequence[int]],
+        measurement_dict: dict[str, Sequence[int]],
         repetitions: int,
     ):
         self._probabilities = probabilities
@@ -158,7 +187,7 @@ class SimulatorResult:
         """
         return self._repetitions
 
-    def probabilities(self, key: Optional[str] = None) -> Dict[int, float]:
+    def probabilities(self, key: str | None = None) -> dict[int, float]:
         """Returns the probabilities of the measurement results.
 
         If a key parameter is supplied, these are the probabilities for the measurement results for
@@ -186,7 +215,7 @@ class SimulatorResult:
                 'circuit that produced these results.'
             )
         targets = self._measurement_dict[key]
-        result: Dict[int, float] = dict()
+        result: dict[int, float] = dict()
         for value, probability in self._probabilities.items():
             bits = [(value >> (self.num_qubits() - target - 1)) & 1 for target in targets]
             bit_value = sum(bit * (1 << i) for i, bit in enumerate(bits[::-1]))
@@ -196,13 +225,13 @@ class SimulatorResult:
                 result[bit_value] = probability
         return result
 
-    def measurement_dict(self) -> Dict[str, Sequence[int]]:
+    def measurement_dict(self) -> dict[str, Sequence[int]]:
         """Returns a map from measurement keys to target qubit indices for this measurement."""
         return self._measurement_dict
 
     def to_cirq_result(
         self,
-        params: cirq.ParamResolver = None,
+        params: cirq.ParamResolver | None = None,
         seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
         override_repetitions=None,
     ) -> cirq.Result:
@@ -238,6 +267,13 @@ class SimulatorResult:
         rand = cirq.value.parse_random_state(seed)
         measurements = {}
         values, weights = zip(*list(self.probabilities().items()))
+
+        # normalize weights to sum to 1 if within tolerance because
+        # IonQ's pauliexp gates results are not extremely precise
+        total = sum(weights)
+        if np.isclose(total, 1.0, rtol=0, atol=1e-5):
+            weights = tuple((w / total for w in weights))
+
         indices = rand.choice(
             range(len(values)), p=weights, size=override_repetitions or self.repetitions()
         )
@@ -248,7 +284,7 @@ class SimulatorResult:
                 for value in rand_values
             ]
             measurements[key] = np.array(bits)
-        return cirq.Result(params=params or cirq.ParamResolver({}), measurements=measurements)
+        return cirq.ResultDict(params=params or cirq.ParamResolver({}), measurements=measurements)
 
     def __eq__(self, other):
         if not isinstance(other, SimulatorResult):

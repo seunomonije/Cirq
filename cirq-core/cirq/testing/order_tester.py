@@ -23,9 +23,11 @@ added items or groups.
 It will also check that a==b implies hash(a)==hash(b).
 """
 
-from typing import Any
-from cirq.testing.equals_tester import EqualsTester
+from __future__ import annotations
 
+from typing import Any
+
+from cirq.testing.equals_tester import EqualsTester
 
 _NAMED_COMPARISON_OPERATORS = [
     ('<', lambda a, b: a < b),
@@ -50,10 +52,9 @@ class OrderTester:
             expected = cmp_func(0, sign)
             actual = cmp_func(a, b)
             assert expected == actual, (
-                "Ordering constraint violated. Expected X={} to {} Y={}, "
-                "but X {} Y returned {}".format(
-                    a, ['be more than', 'equal', 'be less than'][sign + 1], b, cmp_name, actual
-                )
+                f"Ordering constraint violated. Expected X={a} "
+                f"to {['be more than', 'equal', 'be less than'][sign + 1]} Y={b}, "
+                f"but X {cmp_name} Y returned {actual}"
             )
 
     def _verify_ordering(self, a: Any, b: Any, sign: int):
@@ -74,7 +75,7 @@ class OrderTester:
                 "    if not isinstance(other, type(self)):\n"
                 "        return NotImplemented\n"
                 "\n"
-                "That rule is being violated by this value: {!r}".format(item)
+                f"That rule is being violated by this value: {item!r}"
             ) from ex
 
     def add_ascending(self, *items: Any):
@@ -106,7 +107,7 @@ class OrderTester:
         Adds the objects as a group.
 
         Args:
-            group_items: items making the equivalence group
+            *group_items: items making the equivalence group
 
         Raises:
             AssertionError: The group elements aren't equal to each other,

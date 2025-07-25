@@ -12,17 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import ABC, abstractmethod
-from pathlib import Path
-from enum import Enum
+from __future__ import annotations
+
 import os
 import uuid
 import webbrowser
+from abc import ABC, abstractmethod
+from enum import Enum
+from pathlib import Path
 
 import cirq_web
 
 # Resolve the path so the bundle file can be accessed properly
-_DIST_PATH = Path(cirq_web.__file__).parents[1] / "cirq_ts" / "dist"
+_DIST_PATH = Path(cirq_web.__file__).parents[1] / "cirq_web" / "dist"
 
 
 class Env(Enum):
@@ -111,7 +113,7 @@ def _to_script_tag(bundle_filename: str) -> str:
     """Dumps the contents of a particular bundle file into a script tag.
 
     Args:
-        path: the path to the bundle file
+        bundle_filename: the path to the bundle file
 
     Returns:
         The bundle file as string (readable by browser) wrapped in HTML script tags.

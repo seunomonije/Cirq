@@ -1,5 +1,20 @@
+# Copyright 2025 The Cirq Developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
 import itertools
-from unittest import mock
 
 import numpy as np
 import pytest
@@ -23,7 +38,7 @@ def test_run_no_repetitions():
     simulator = cirq.CliffordSimulator()
     circuit = cirq.Circuit(cirq.H(q0), cirq.measure(q0))
     result = simulator.run(circuit, repetitions=0)
-    assert sum(result.measurements['0']) == 0
+    assert sum(result.measurements['q(0)']) == 0
 
 
 def test_run_hadamard():
@@ -31,8 +46,8 @@ def test_run_hadamard():
     simulator = cirq.CliffordSimulator()
     circuit = cirq.Circuit(cirq.H(q0), cirq.measure(q0))
     result = simulator.run(circuit, repetitions=100)
-    assert sum(result.measurements['0'])[0] < 80
-    assert sum(result.measurements['0'])[0] > 20
+    assert sum(result.measurements['q(0)'])[0] < 80
+    assert sum(result.measurements['q(0)'])[0] > 20
 
 
 def test_run_GHZ():
@@ -40,8 +55,8 @@ def test_run_GHZ():
     simulator = cirq.CliffordSimulator()
     circuit = cirq.Circuit(cirq.H(q0), cirq.H(q1), cirq.measure(q0))
     result = simulator.run(circuit, repetitions=100)
-    assert sum(result.measurements['0'])[0] < 80
-    assert sum(result.measurements['0'])[0] > 20
+    assert sum(result.measurements['q(0)'])[0] < 80
+    assert sum(result.measurements['q(0)'])[0] > 20
 
 
 def test_run_correlations():
@@ -50,7 +65,7 @@ def test_run_correlations():
     circuit = cirq.Circuit(cirq.H(q0), cirq.CNOT(q0, q1), cirq.measure(q0, q1))
     for _ in range(10):
         result = simulator.run(circuit)
-        bits = result.measurements['0,1'][0]
+        bits = result.measurements['q(0),q(1)'][0]
         assert bits[0] == bits[1]
 
 
@@ -91,15 +106,20 @@ def test_simulate_initial_state():
                 circuit.append(cirq.X(q1))
             circuit.append(cirq.measure(q0, q1))
 
-            result = simulator.simulate(circuit, initial_state=1)
-            expected_state = np.zeros(shape=(2, 2))
-            expected_state[b0][1 - b1] = 1.0
-            np.testing.assert_almost_equal(
-                result.final_state.to_numpy(), np.reshape(expected_state, 4)
-            )
+            for initial_state in [
+                cirq.StabilizerChFormSimulationState(
+                    qubits=cirq.LineQubit.range(2), initial_state=1
+                )
+            ]:
+                result = simulator.simulate(circuit, initial_state=initial_state)
+                expected_state = np.zeros(shape=(2, 2))
+                expected_state[b0][1 - b1] = 1.0
+                np.testing.assert_almost_equal(
+                    result.final_state.to_numpy(), np.reshape(expected_state, 4)
+                )
 
 
-def test_simulate_act_on_args():
+def test_simulation_state():
     q0, q1 = cirq.LineQubit.range(2)
     simulator = cirq.CliffordSimulator()
     for b0 in [0, 1]:
@@ -111,7 +131,7 @@ def test_simulate_act_on_args():
                 circuit.append(cirq.X(q1))
             circuit.append(cirq.measure(q0, q1))
 
-            args = simulator._create_act_on_args(initial_state=1, qubits=(q0, q1))
+            args = simulator._create_simulation_state(initial_state=1, qubits=(q0, q1))
             result = simulator.simulate(circuit, initial_state=args)
             expected_state = np.zeros(shape=(2, 2))
             expected_state[b0][1 - b1] = 1.0
@@ -152,7 +172,7 @@ def test_run_measure_multiple_qubits():
                 circuit.append(cirq.X(q1))
             circuit.append(cirq.measure(q0, q1))
             result = simulator.run(circuit, repetitions=3)
-            np.testing.assert_equal(result.measurements, {'0,1': [[b0, b1]] * 3})
+            np.testing.assert_equal(result.measurements, {'q(0),q(1)': [[b0, b1]] * 3})
 
 
 def test_simulate_moment_steps():
@@ -185,13 +205,14 @@ def test_simulate_moment_steps_sample():
                 )
 
 
-def test_simulate_moment_steps_intermediate_measurement():
+@pytest.mark.parametrize('split', [True, False])
+def test_simulate_moment_steps_intermediate_measurement(split):
     q0 = cirq.LineQubit(0)
     circuit = cirq.Circuit(cirq.H(q0), cirq.measure(q0), cirq.H(q0))
-    simulator = cirq.CliffordSimulator()
+    simulator = cirq.CliffordSimulator(split_untangled_states=split)
     for i, step in enumerate(simulator.simulate_moment_steps(circuit)):
         if i == 1:
-            result = int(step.measurements['0'][0])
+            result = int(step.measurements['q(0)'][0])
             expected = np.zeros(2)
             expected[result] = 1
             np.testing.assert_almost_equal(step.state.to_numpy(), expected)
@@ -207,35 +228,38 @@ def test_clifford_state_initial_state():
     state = cirq.CliffordState(qubit_map={q0: 0}, initial_state=1)
     np.testing.assert_allclose(state.state_vector(), [0, 1])
 
+    assert state.copy() == state
+
 
 def test_clifford_trial_result_repr():
     q0 = cirq.LineQubit(0)
-    final_step_result = mock.Mock(cirq.CliffordSimulatorStepResult)
-    final_step_result._simulator_state.return_value = cirq.CliffordState(qubit_map={q0: 0})
+    final_simulator_state = cirq.StabilizerChFormSimulationState(qubits=[q0])
     assert (
         repr(
             cirq.CliffordTrialResult(
                 params=cirq.ParamResolver({}),
                 measurements={'m': np.array([[1]])},
-                final_step_result=final_step_result,
+                final_simulator_state=final_simulator_state,
             )
         )
         == "cirq.SimulationTrialResult(params=cirq.ParamResolver({}), "
         "measurements={'m': array([[1]])}, "
-        "final_simulator_state=StabilizerStateChForm(num_qubits=1))"
+        "final_simulator_state=cirq.StabilizerChFormSimulationState("
+        "initial_state=StabilizerStateChForm(num_qubits=1), "
+        "qubits=(cirq.LineQubit(0),), "
+        "classical_data=cirq.ClassicalDataDictionaryStore()))"
     )
 
 
 def test_clifford_trial_result_str():
     q0 = cirq.LineQubit(0)
-    final_step_result = mock.Mock(cirq.CliffordSimulatorStepResult)
-    final_step_result._simulator_state.return_value = cirq.CliffordState(qubit_map={q0: 0})
+    final_simulator_state = cirq.StabilizerChFormSimulationState(qubits=[q0])
     assert (
         str(
             cirq.CliffordTrialResult(
                 params=cirq.ParamResolver({}),
                 measurements={'m': np.array([[1]])},
-                final_step_result=final_step_result,
+                final_simulator_state=final_simulator_state,
             )
         )
         == "measurements: m=1\n"
@@ -243,12 +267,34 @@ def test_clifford_trial_result_str():
     )
 
 
+def test_clifford_trial_result_repr_pretty():
+    q0 = cirq.LineQubit(0)
+    final_simulator_state = cirq.StabilizerChFormSimulationState(qubits=[q0])
+    result = cirq.CliffordTrialResult(
+        params=cirq.ParamResolver({}),
+        measurements={'m': np.array([[1]])},
+        final_simulator_state=final_simulator_state,
+    )
+
+    cirq.testing.assert_repr_pretty(result, "measurements: m=1\noutput state: |0⟩")
+    cirq.testing.assert_repr_pretty(result, "cirq.CliffordTrialResult(...)", cycle=True)
+
+
 def test_clifford_step_result_str():
     q0 = cirq.LineQubit(0)
     result = next(
         cirq.CliffordSimulator().simulate_moment_steps(cirq.Circuit(cirq.measure(q0, key='m')))
     )
-    assert str(result) == "m=0\n" "|0⟩"
+    assert str(result) == "m=0\n|0⟩"
+
+
+def test_clifford_step_result_repr_pretty():
+    q0 = cirq.LineQubit(0)
+    result = next(
+        cirq.CliffordSimulator().simulate_moment_steps(cirq.Circuit(cirq.measure(q0, key='m')))
+    )
+    cirq.testing.assert_repr_pretty(result, "m=0\n|0⟩")
+    cirq.testing.assert_repr_pretty(result, "cirq.CliffordSimulatorStateResult(...)", cycle=True)
 
 
 def test_clifford_step_result_no_measurements_str():
@@ -300,17 +346,18 @@ def test_clifford_circuit_SHSYSHS():
     clifford_simulator = cirq.CliffordSimulator()
     state_vector_simulator = cirq.Simulator()
 
+    # workaround until #6402 is resolved.
+    final_state_vector = state_vector_simulator.simulate(circuit).final_state_vector
+    final_state_vector /= np.linalg.norm(final_state_vector)
     np.testing.assert_almost_equal(
-        clifford_simulator.simulate(circuit).final_state.state_vector(),
-        state_vector_simulator.simulate(circuit).final_state_vector,
+        clifford_simulator.simulate(circuit).final_state.state_vector(), final_state_vector
     )
 
 
-def test_clifford_circuit():
+@pytest.mark.parametrize('split', [True, False])
+def test_clifford_circuit(split):
     (q0, q1) = (cirq.LineQubit(0), cirq.LineQubit(1))
     circuit = cirq.Circuit()
-
-    np.random.seed(0)
 
     for _ in range(100):
         x = np.random.randint(7)
@@ -330,7 +377,7 @@ def test_clifford_circuit():
         elif x == 6:
             circuit.append(cirq.CZ(q0, q1))
 
-    clifford_simulator = cirq.CliffordSimulator()
+    clifford_simulator = cirq.CliffordSimulator(split_untangled_states=split)
     state_vector_simulator = cirq.Simulator()
 
     np.testing.assert_almost_equal(
@@ -340,7 +387,8 @@ def test_clifford_circuit():
 
 
 @pytest.mark.parametrize("qubits", [cirq.LineQubit.range(2), cirq.LineQubit.range(4)])
-def test_clifford_circuit_2(qubits):
+@pytest.mark.parametrize('split', [True, False])
+def test_clifford_circuit_2(qubits, split):
     circuit = cirq.Circuit()
 
     np.random.seed(2)
@@ -349,33 +397,32 @@ def test_clifford_circuit_2(qubits):
         x = np.random.randint(7)
 
         if x == 0:
-            circuit.append(cirq.X(np.random.choice(qubits)))  # coverage: ignore
+            circuit.append(cirq.X(np.random.choice(qubits)))  # pragma: no cover
         elif x == 1:
-            circuit.append(cirq.Z(np.random.choice(qubits)))  # coverage: ignore
+            circuit.append(cirq.Z(np.random.choice(qubits)))  # pragma: no cover
         elif x == 2:
-            circuit.append(cirq.Y(np.random.choice(qubits)))  # coverage: ignore
+            circuit.append(cirq.Y(np.random.choice(qubits)))  # pragma: no cover
         elif x == 3:
-            circuit.append(cirq.S(np.random.choice(qubits)))  # coverage: ignore
+            circuit.append(cirq.S(np.random.choice(qubits)))  # pragma: no cover
         elif x == 4:
-            circuit.append(cirq.H(np.random.choice(qubits)))  # coverage: ignore
+            circuit.append(cirq.H(np.random.choice(qubits)))  # pragma: no cover
         elif x == 5:
-            circuit.append(cirq.CNOT(qubits[0], qubits[1]))  # coverage: ignore
+            circuit.append(cirq.CNOT(qubits[0], qubits[1]))  # pragma: no cover
         elif x == 6:
-            circuit.append(cirq.CZ(qubits[0], qubits[1]))  # coverage: ignore
+            circuit.append(cirq.CZ(qubits[0], qubits[1]))  # pragma: no cover
 
     circuit.append(cirq.measure(qubits[0]))
-    result = cirq.CliffordSimulator().run(circuit, repetitions=100)
+    result = cirq.CliffordSimulator(split_untangled_states=split).run(circuit, repetitions=100)
 
-    assert sum(result.measurements['0'])[0] < 80
-    assert sum(result.measurements['0'])[0] > 20
+    assert sum(result.measurements['q(0)'])[0] < 80
+    assert sum(result.measurements['q(0)'])[0] > 20
 
 
-def test_clifford_circuit_3():
+@pytest.mark.parametrize('split', [True, False])
+def test_clifford_circuit_3(split):
     # This test tests the simulator on arbitrary 1-qubit Clifford gates.
     (q0, q1) = (cirq.LineQubit(0), cirq.LineQubit(1))
     circuit = cirq.Circuit()
-
-    np.random.seed(0)
 
     def random_clifford_gate():
         matrix = np.eye(2)
@@ -390,12 +437,13 @@ def test_clifford_circuit_3():
         else:
             circuit.append(random_clifford_gate()(np.random.choice((q0, q1))))
 
-    clifford_simulator = cirq.CliffordSimulator()
+    clifford_simulator = cirq.CliffordSimulator(split_untangled_states=split)
     state_vector_simulator = cirq.Simulator()
 
     np.testing.assert_almost_equal(
         clifford_simulator.simulate(circuit).final_state.state_vector(),
         state_vector_simulator.simulate(circuit).final_state_vector,
+        decimal=6,
     )
 
 
@@ -450,17 +498,17 @@ def test_is_supported_operation():
             raise NotImplementedError()
 
         def _has_unitary_(self):
-            return True
+            return True  # pragma: no cover
 
         def _unitary_(self):
-            assert False
+            assert False  # pragma: no cover
 
     q1, q2 = cirq.LineQubit.range(2)
     assert cirq.CliffordSimulator.is_supported_operation(cirq.X(q1))
     assert cirq.CliffordSimulator.is_supported_operation(cirq.H(q1))
     assert cirq.CliffordSimulator.is_supported_operation(cirq.CNOT(q1, q2))
     assert cirq.CliffordSimulator.is_supported_operation(cirq.measure(q1))
-    assert cirq.CliffordSimulator.is_supported_operation(cirq.GlobalPhaseOperation(1j))
+    assert cirq.CliffordSimulator.is_supported_operation(cirq.global_phase_operation(1j))
 
     assert not cirq.CliffordSimulator.is_supported_operation(cirq.T(q1))
     assert not cirq.CliffordSimulator.is_supported_operation(MultiQubitOp())
@@ -478,7 +526,7 @@ def test_simulate_pauli_string():
 
 def test_simulate_global_phase_operation():
     q1, q2 = cirq.LineQubit.range(2)
-    circuit = cirq.Circuit([cirq.I(q1), cirq.I(q2), cirq.GlobalPhaseOperation(-1j)])
+    circuit = cirq.Circuit([cirq.I(q1), cirq.I(q2), cirq.global_phase_operation(-1j)])
     simulator = cirq.CliffordSimulator()
 
     result = simulator.simulate(circuit).final_state.state_vector()
@@ -514,7 +562,7 @@ def test_invalid_apply_measurement():
     state = cirq.CliffordState(qubit_map={q0: 0})
     measurements = {}
     with pytest.raises(TypeError, match='only supports cirq.MeasurementGate'):
-        _ = state.apply_measurement(cirq.H(q0), measurements, np.random.RandomState())
+        state.apply_measurement(cirq.H(q0), measurements, np.random.RandomState())
     assert measurements == {}
 
 
@@ -522,18 +570,24 @@ def test_valid_apply_measurement():
     q0 = cirq.LineQubit(0)
     state = cirq.CliffordState(qubit_map={q0: 0}, initial_state=1)
     measurements = {}
-    _ = state.apply_measurement(cirq.measure(q0), measurements, np.random.RandomState())
-    assert measurements == {'0': [1]}
+    state.apply_measurement(
+        cirq.measure(q0), measurements, np.random.RandomState(), collapse_state_vector=False
+    )
+    assert measurements == {'q(0)': [1]}
+    state.apply_measurement(cirq.measure(q0), measurements, np.random.RandomState())
+    assert measurements == {'q(0)': [1]}
 
 
-def test_reset():
+@pytest.mark.parametrize('split', [True, False])
+def test_reset(split):
     q = cirq.LineQubit(0)
     c = cirq.Circuit(cirq.X(q), cirq.reset(q), cirq.measure(q, key="out"))
-    assert cirq.CliffordSimulator().sample(c)["out"][0] == 0
+    sim = cirq.CliffordSimulator(split_untangled_states=split)
+    assert sim.sample(c)["out"][0] == 0
     c = cirq.Circuit(cirq.H(q), cirq.reset(q), cirq.measure(q, key="out"))
-    assert cirq.CliffordSimulator().sample(c)["out"][0] == 0
+    assert sim.sample(c)["out"][0] == 0
     c = cirq.Circuit(cirq.reset(q), cirq.measure(q, key="out"))
-    assert cirq.CliffordSimulator().sample(c)["out"][0] == 0
+    assert sim.sample(c)["out"][0] == 0
 
 
 def test_state_copy():

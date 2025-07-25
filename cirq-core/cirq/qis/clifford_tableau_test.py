@@ -13,6 +13,9 @@
 # limitations under the License.
 
 """Tests for clifford tableau."""
+
+from __future__ import annotations
+
 import numpy as np
 import pytest
 
@@ -45,7 +48,7 @@ def _CNOT(table, q1, q2):
 
 @pytest.mark.parametrize('num_qubits', range(1, 4))
 def test_tableau_initial_state_string(num_qubits):
-    for i in range(2 ** num_qubits):
+    for i in range(2**num_qubits):
         t = cirq.CliffordTableau(initial_state=i, num_qubits=num_qubits)
         splitted_represent_string = str(t).split('\n')
         assert len(splitted_represent_string) == num_qubits
@@ -53,6 +56,21 @@ def test_tableau_initial_state_string(num_qubits):
             sign = '- ' if i >> (num_qubits - n - 1) & 1 else '+ '
             expected_string = sign + 'I ' * n + 'Z ' + 'I ' * (num_qubits - n - 1)
             assert splitted_represent_string[n] == expected_string
+
+
+def test_tableau_invalid_initial_state():
+    with pytest.raises(ValueError, match="2*num_qubits columns and of type bool."):
+        cirq.CliffordTableau(1, rs=np.zeros(1, dtype=bool))
+
+    with pytest.raises(
+        ValueError, match="2*num_qubits rows, num_qubits columns, and of type bool."
+    ):
+        cirq.CliffordTableau(1, xs=np.zeros(1, dtype=bool))
+
+    with pytest.raises(
+        ValueError, match="2*num_qubits rows, num_qubits columns, and of type bool."
+    ):
+        cirq.CliffordTableau(1, zs=np.zeros(1, dtype=bool))
 
 
 def test_stabilizers():
@@ -179,7 +197,7 @@ def test_measurement():
 
 def test_validate_tableau():
     num_qubits = 4
-    for i in range(2 ** num_qubits):
+    for i in range(2**num_qubits):
         t = cirq.CliffordTableau(initial_state=i, num_qubits=num_qubits)
         assert t._validate()
 
@@ -197,7 +215,7 @@ def test_validate_tableau():
     assert t._validate()
 
     t.xs = np.zeros((4, 2))
-    assert t._validate() == False
+    assert not t._validate()
 
 
 def test_rowsum():
@@ -234,7 +252,6 @@ def test_json_dict():
     assert t.stabilizers()[0] == cirq.DensePauliString('Z', coefficient=1)
     json_dict = t._json_dict_()
     except_json_dict = {
-        'cirq_type': 'CliffordTableau',
         'n': 1,
         'rs': [False, False],
         'xs': [[True], [False]],
@@ -272,8 +289,7 @@ def test_str():
 
 
 def test_repr():
-    t = cirq.CliffordTableau(num_qubits=1)
-    assert repr(t) == "stabilizers: [cirq.DensePauliString('Z', coefficient=(1+0j))]"
+    cirq.testing.assert_equivalent_repr(cirq.CliffordTableau(num_qubits=1))
 
 
 def test_str_full():
@@ -295,7 +311,7 @@ def test_str_full():
     t = cirq.CliffordTableau(num_qubits=2)
     expected_str = r"""stable | destable
 -------+----------
-+ Z0   | + X0  
++ Z0   | + X0
 +   Z1 | +   X1
 """
     assert t._str_full_() == expected_str
@@ -315,13 +331,6 @@ def test_copy():
     np.testing.assert_array_equal(t.zs, new_t.zs)
 
     assert t == t.copy() == t.__copy__()
-
-
-def test_deprecated_clifford_location():
-    with cirq.testing.assert_deprecated('use cirq.CliffordTableau instead', deadline="v0.12"):
-        from cirq.sim import CliffordTableau
-
-        CliffordTableau(num_qubits=1)
 
 
 def _three_identical_table(num_qubits):
@@ -431,9 +440,7 @@ def test_tableau_matmul():
     assert expected_t != t1 @ t2
 
     with pytest.raises(TypeError):
-        # pylint: disable=pointless-statement
         t1 @ 21
-        # pylint: enable=pointless-statement
 
 
 def test_tableau_then_with_bad_input():

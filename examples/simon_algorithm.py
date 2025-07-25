@@ -1,7 +1,13 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
 # Used for classical post-processing:
+
+from __future__ import annotations
+
 from collections import Counter
+
 import numpy as np
 import scipy as sp
+
 import cirq
 
 """Demonstrates Simon's algorithm.
@@ -128,11 +134,7 @@ def make_simon_circuit(input_qubits, output_qubits, oracle):
     c = cirq.Circuit()
 
     # Initialize qubits.
-    c.append(
-        [
-            cirq.H.on_each(*input_qubits),
-        ]
-    )
+    c.append([cirq.H.on_each(*input_qubits)])
 
     # Query oracle.
     c.append(oracle)

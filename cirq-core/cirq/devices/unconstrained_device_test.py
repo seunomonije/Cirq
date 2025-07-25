@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import cirq
 
 
@@ -25,5 +27,7 @@ def test_infinitely_fast():
     )
 
 
-def test_qubit_set():
-    assert cirq.UNCONSTRAINED_DEVICE.qubit_set() is None
+def test_any_qubit_works():
+    moment = cirq.Moment([cirq.X(cirq.LineQubit(987654321))])
+    cirq.UNCONSTRAINED_DEVICE.validate_moment(moment)
+    cirq.UNCONSTRAINED_DEVICE.validate_circuit(cirq.Circuit(moment))

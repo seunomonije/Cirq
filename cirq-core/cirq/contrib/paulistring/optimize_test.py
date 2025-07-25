@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
 import cirq
-
-from cirq.contrib.paulistring import (
-    optimized_circuit,
-)
+from cirq.contrib.paulistring import optimized_circuit
 
 
-def test_optimize():
+def test_optimize() -> None:
     q0, q1, q2 = cirq.LineQubit.range(3)
     c_orig = cirq.Circuit(
         cirq.X(q0) ** 0.5,
@@ -50,11 +48,7 @@ def test_optimize():
 
     c_opt = optimized_circuit(c_orig)
 
-    cirq.testing.assert_allclose_up_to_global_phase(
-        c_orig.unitary(),
-        c_opt.unitary(),
-        atol=1e-7,
-    )
+    cirq.testing.assert_allclose_up_to_global_phase(c_orig.unitary(), c_opt.unitary(), atol=1e-7)
 
     cirq.testing.assert_has_diagram(
         c_opt,
@@ -68,17 +62,13 @@ def test_optimize():
     )
 
 
-def test_optimize_large_circuit():
+def test_optimize_large_circuit() -> None:
     q0, q1, q2 = cirq.LineQubit.range(3)
     c_orig = cirq.testing.nonoptimal_toffoli_circuit(q0, q1, q2)
 
     c_opt = optimized_circuit(c_orig)
 
-    cirq.testing.assert_allclose_up_to_global_phase(
-        c_orig.unitary(),
-        c_opt.unitary(),
-        atol=1e-7,
-    )
+    cirq.testing.assert_allclose_up_to_global_phase(c_orig.unitary(), c_opt.unitary(), atol=1e-7)
 
     assert (
         sum(
@@ -90,17 +80,13 @@ def test_optimize_large_circuit():
     )
 
 
-def test_repeat_limit():
+def test_repeat_limit() -> None:
     q0, q1, q2 = cirq.LineQubit.range(3)
     c_orig = cirq.testing.nonoptimal_toffoli_circuit(q0, q1, q2)
 
     c_opt = optimized_circuit(c_orig, repeat=1)
 
-    cirq.testing.assert_allclose_up_to_global_phase(
-        c_orig.unitary(),
-        c_opt.unitary(),
-        atol=1e-7,
-    )
+    cirq.testing.assert_allclose_up_to_global_phase(c_orig.unitary(), c_opt.unitary(), atol=1e-7)
 
     assert (
         sum(

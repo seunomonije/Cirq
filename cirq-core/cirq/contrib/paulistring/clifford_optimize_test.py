@@ -12,16 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
 import cirq
-
-from cirq.contrib.paulistring import (
-    converted_gate_set,
-    clifford_optimized_circuit,
-)
+from cirq.contrib.paulistring import clifford_optimized_circuit, CliffordTargetGateset
 
 
-def test_optimize():
+def test_optimize() -> None:
     q0, q1 = cirq.LineQubit.range(2)
     c_orig = cirq.Circuit(
         cirq.X(q1) ** 0.5,
@@ -31,22 +28,15 @@ def test_optimize():
         cirq.CZ(q0, q1),
         cirq.X(q1) ** -0.5,
     )
-    c_expected = converted_gate_set(
-        cirq.Circuit(
-            cirq.CZ(q0, q1),
-            cirq.Z(q0) ** 0.25,
-            cirq.X(q1) ** 0.25,
-            cirq.CZ(q0, q1),
-        )
+    c_expected = cirq.optimize_for_target_gateset(
+        cirq.Circuit(cirq.CZ(q0, q1), cirq.Z(q0) ** 0.25, cirq.X(q1) ** 0.25, cirq.CZ(q0, q1)),
+        gateset=CliffordTargetGateset(),
+        ignore_failures=True,
     )
 
     c_opt = clifford_optimized_circuit(c_orig)
 
-    cirq.testing.assert_allclose_up_to_global_phase(
-        c_orig.unitary(),
-        c_opt.unitary(),
-        atol=1e-7,
-    )
+    cirq.testing.assert_allclose_up_to_global_phase(c_orig.unitary(), c_opt.unitary(), atol=1e-7)
 
     assert c_opt == c_expected
 
@@ -60,25 +50,17 @@ def test_optimize():
     )
 
 
-def test_remove_czs():
+def test_remove_czs() -> None:
     q0, q1 = cirq.LineQubit.range(2)
-    c_orig = cirq.Circuit(
-        cirq.CZ(q0, q1),
-        cirq.Z(q0) ** 0.5,
-        cirq.CZ(q0, q1),
-    )
-    c_expected = converted_gate_set(
-        cirq.Circuit(
-            cirq.Z(q0) ** 0.5,
-        )
+    c_orig = cirq.Circuit(cirq.CZ(q0, q1), cirq.Z(q0) ** 0.5, cirq.CZ(q0, q1))
+    c_expected = cirq.optimize_for_target_gateset(
+        cirq.Circuit(cirq.Z(q0) ** 0.5), gateset=CliffordTargetGateset(), ignore_failures=True
     )
 
     c_opt = clifford_optimized_circuit(c_orig)
 
     cirq.testing.assert_allclose_up_to_global_phase(
-        c_orig.unitary(),
-        c_opt.unitary(qubits_that_should_be_present=(q0, q1)),
-        atol=1e-7,
+        c_orig.unitary(), c_opt.unitary(qubits_that_should_be_present=(q0, q1)), atol=1e-7
     )
 
     assert c_opt == c_expected
@@ -91,25 +73,17 @@ def test_remove_czs():
     )
 
 
-def test_remove_staggered_czs():
+def test_remove_staggered_czs() -> None:
     q0, q1, q2 = cirq.LineQubit.range(3)
-    c_orig = cirq.Circuit(
-        cirq.CZ(q0, q1),
-        cirq.CZ(q1, q2),
-        cirq.CZ(q0, q1),
-    )
-    c_expected = converted_gate_set(
-        cirq.Circuit(
-            cirq.CZ(q1, q2),
-        )
+    c_orig = cirq.Circuit(cirq.CZ(q0, q1), cirq.CZ(q1, q2), cirq.CZ(q0, q1))
+    c_expected = cirq.optimize_for_target_gateset(
+        cirq.Circuit(cirq.CZ(q1, q2)), gateset=CliffordTargetGateset(), ignore_failures=True
     )
 
     c_opt = clifford_optimized_circuit(c_orig)
 
     cirq.testing.assert_allclose_up_to_global_phase(
-        c_orig.unitary(),
-        c_opt.unitary(qubits_that_should_be_present=(q0, q1, q2)),
-        atol=1e-7,
+        c_orig.unitary(), c_opt.unitary(qubits_that_should_be_present=(q0, q1, q2)), atol=1e-7
     )
 
     assert c_opt == c_expected
@@ -124,29 +98,17 @@ def test_remove_staggered_czs():
     )
 
 
-def test_with_measurements():
+def test_with_measurements() -> None:
     q0, q1 = cirq.LineQubit.range(2)
-    c_orig = cirq.Circuit(
-        cirq.X(q0),
-        cirq.CZ(q0, q1),
-        cirq.measure(q0, q1, key='m'),
+    c_orig = cirq.Circuit(cirq.X(q0), cirq.CZ(q0, q1), cirq.measure(q0, q1, key='m'))
+    c_expected = cirq.optimize_for_target_gateset(
+        cirq.Circuit(cirq.CZ(q0, q1), cirq.X(q0), cirq.Z(q1), cirq.measure(q0, q1, key='m')),
+        gateset=CliffordTargetGateset(),
+        ignore_failures=True,
     )
-    c_expected = converted_gate_set(
-        cirq.Circuit(
-            cirq.CZ(q0, q1),
-            cirq.X(q0),
-            cirq.Z(q1),
-            cirq.measure(q0, q1, key='m'),
-        )
-    )
-
     c_opt = clifford_optimized_circuit(c_orig)
 
-    cirq.testing.assert_allclose_up_to_global_phase(
-        c_orig.unitary(),
-        c_opt.unitary(),
-        atol=1e-7,
-    )
+    cirq.testing.assert_allclose_up_to_global_phase(c_orig.unitary(), c_opt.unitary(), atol=1e-7)
 
     assert c_opt == c_expected
 
@@ -160,14 +122,10 @@ def test_with_measurements():
     )
 
 
-def test_optimize_large_circuit():
+def test_optimize_large_circuit() -> None:
     q0, q1, q2 = cirq.LineQubit.range(3)
     c_orig = cirq.testing.nonoptimal_toffoli_circuit(q0, q1, q2)
 
     c_opt = clifford_optimized_circuit(c_orig)
 
-    cirq.testing.assert_allclose_up_to_global_phase(
-        c_orig.unitary(),
-        c_opt.unitary(),
-        atol=1e-7,
-    )
+    cirq.testing.assert_allclose_up_to_global_phase(c_orig.unitary(), c_opt.unitary(), atol=1e-7)

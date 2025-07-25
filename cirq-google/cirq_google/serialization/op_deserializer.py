@@ -12,23 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-)
-from dataclasses import dataclass
+from __future__ import annotations
 
 import abc
+from typing import Any
+
 import sympy
 
 import cirq
-from cirq._compat import deprecated
 from cirq_google.api import v2
-from cirq_google.ops.calibration_tag import CalibrationTag
 from cirq_google.serialization import arg_func_langs
 
 
@@ -36,34 +28,21 @@ class OpDeserializer(abc.ABC):
     """Generic supertype for operation deserializers.
 
     Each operation deserializer describes how to deserialize operation protos
-    with a particular `serialized_id` to a specific type of Cirq operation.
+    to a specific type of Cirq operation.
     """
 
-    @property
     @abc.abstractmethod
-    def serialized_id(self) -> str:
-        """Returns the string identifier for the accepted serialized objects.
-
-        This ID denotes the serialization format this deserializer consumes. For
-        example, one of the common deserializers converts objects with the id
-        'xy' into PhasedXPowGates.
-        """
+    def can_deserialize_proto(self, proto) -> bool:
+        """Whether the given operation can be serialized by this serializer."""
 
     @abc.abstractmethod
     def from_proto(
-        self,
-        proto,
-        *,
-        arg_function_language: str = '',
-        constants: List[v2.program_pb2.Constant] = None,
-        deserialized_constants: List[Any] = None,
+        self, proto, *, constants: list[v2.program_pb2.Constant], deserialized_constants: list[Any]
     ) -> cirq.Operation:
         """Converts a proto-formatted operation into a Cirq operation.
 
         Args:
             proto: The proto object to be deserialized.
-            arg_function_language: The `arg_function_language` field from
-                `Program.Language`.
             constants: The list of Constant protos referenced by constant
                 table indices in `proto`.
             deserialized_constants: The deserialized contents of `constants`.
@@ -73,178 +52,23 @@ class OpDeserializer(abc.ABC):
         """
 
 
-@dataclass(frozen=True)
-class DeserializingArg:
-    """Specification of the arguments to deserialize an argument to a gate.
-
-    Args:
-        serialized_name: The serialized name of the gate that is being
-            deserialized.
-        constructor_arg_name: The name of the argument in the constructor of
-            the gate corresponding to this serialized argument.
-        value_func: Sometimes a value from the serialized proto needs to
-            converted to an appropriate type or form. This function takes the
-            serialized value and returns the appropriate type. Defaults to
-            None.
-        required: Whether a value must be specified when constructing the
-            deserialized gate. Defaults to True.
-        default: default value to set if the value is not present in the
-            arg.  If set, required is ignored.
-    """
-
-    serialized_name: str
-    constructor_arg_name: str
-    value_func: Optional[Callable[[arg_func_langs.ARG_LIKE], Any]] = None
-    required: bool = True
-    default: Any = None
-
-
-class GateOpDeserializer(OpDeserializer):
-    """Describes how to deserialize a proto to a given Gate type.
-
-    Attributes:
-        serialized_gate_id: The id used when serializing the gate.
-    """
-
-    def __init__(
-        self,
-        serialized_gate_id: str,
-        gate_constructor: Callable,
-        args: Sequence[DeserializingArg],
-        num_qubits_param: Optional[str] = None,
-        op_wrapper: Callable[
-            [cirq.Operation, v2.program_pb2.Operation], cirq.Operation
-        ] = lambda x, y: x,
-        deserialize_tokens: Optional[bool] = True,
-    ):
-        """Constructs a deserializer.
-
-        Args:
-            serialized_gate_id: The serialized id of the gate that is being
-                deserialized.
-            gate_constructor: A function that produces the deserialized gate
-                given arguments from args.
-            args: A list of the arguments to be read from the serialized
-                gate and the information required to use this to construct
-                the gate using the gate_constructor above.
-            num_qubits_param: Some gate constructors require that the number
-                of qubits be passed to their constructor. This is the name
-                of the parameter in the constructor for this value. If None,
-                no number of qubits is passed to the constructor.
-            op_wrapper: An optional Callable to modify the resulting
-                GateOperation, for instance, to add tags
-            deserialize_tokens: Whether to convert tokens to
-                CalibrationTags. Defaults to True.
-        """
-        self._serialized_gate_id = serialized_gate_id
-        self._gate_constructor = gate_constructor
-        self._args = args
-        self._num_qubits_param = num_qubits_param
-        self._op_wrapper = op_wrapper
-        self._deserialize_tokens = deserialize_tokens
-
-    @property  # type: ignore
-    @deprecated(deadline='v0.13', fix='Use serialized_id instead.')
-    def serialized_gate_id(self) -> str:
-        return self.serialized_id
-
-    @property
-    def serialized_id(self):
-        return self._serialized_gate_id
-
-    def from_proto(
-        self,
-        proto: v2.program_pb2.Operation,
-        *,
-        arg_function_language: str = '',
-        constants: List[v2.program_pb2.Constant] = None,
-        deserialized_constants: List[Any] = None,  # unused
-    ) -> cirq.Operation:
-        """Turns a cirq_google.api.v2.Operation proto into a GateOperation.
-
-        Args:
-            proto: The proto object to be deserialized.
-            arg_function_language: The `arg_function_language` field from
-                `Program.Language`.
-            constants: The list of Constant protos referenced by constant
-                table indices in `proto`.
-            deserialized_constants: Unused in this method.
-
-        Returns:
-            The deserialized GateOperation represented by `proto`.
-        """
-        qubits = [v2.qubit_from_proto_id(q.id) for q in proto.qubits]
-        args = self._args_from_proto(proto, arg_function_language=arg_function_language)
-        if self._num_qubits_param is not None:
-            args[self._num_qubits_param] = len(qubits)
-        gate = self._gate_constructor(**args)
-        op = self._op_wrapper(gate.on(*qubits), proto)
-        if self._deserialize_tokens:
-            which = proto.WhichOneof('token')
-            if which == 'token_constant_index':
-                if not constants:
-                    raise ValueError(
-                        'Proto has references to constants table '
-                        'but none was passed in, value ='
-                        f'{proto}'
-                    )
-                op = op.with_tags(
-                    CalibrationTag(constants[proto.token_constant_index].string_value)
-                )
-            elif which == 'token_value':
-                op = op.with_tags(CalibrationTag(proto.token_value))
-        return op
-
-    def _args_from_proto(
-        self, proto: v2.program_pb2.Operation, *, arg_function_language: str
-    ) -> Dict[str, arg_func_langs.ARG_LIKE]:
-        return_args = {}
-        for arg in self._args:
-            if arg.serialized_name not in proto.args:
-                if arg.default:
-                    return_args[arg.constructor_arg_name] = arg.default
-                    continue
-                elif arg.required:
-                    raise ValueError(
-                        f'Argument {arg.serialized_name} '
-                        'not in deserializing args, but is required.'
-                    )
-
-            value = arg_func_langs.arg_from_proto(
-                proto.args[arg.serialized_name],
-                arg_function_language=arg_function_language,
-                required_arg_name=None if not arg.required else arg.serialized_name,
-            )
-
-            if arg.value_func is not None:
-                value = arg.value_func(value)
-
-            if value is not None:
-                return_args[arg.constructor_arg_name] = value
-        return return_args
-
-
 class CircuitOpDeserializer(OpDeserializer):
     """Describes how to serialize CircuitOperations."""
 
-    @property
-    def serialized_id(self):
-        return 'circuit'
+    def can_deserialize_proto(self, proto):
+        return isinstance(proto, v2.program_pb2.CircuitOperation)  # pragma: no cover
 
     def from_proto(
         self,
         proto: v2.program_pb2.CircuitOperation,
         *,
-        arg_function_language: str = '',
-        constants: List[v2.program_pb2.Constant] = None,
-        deserialized_constants: List[Any] = None,
-    ) -> cirq.CircuitOperation:
+        constants: list[v2.program_pb2.Constant],
+        deserialized_constants: list[Any],
+    ) -> cirq.Operation:
         """Turns a cirq.google.api.v2.CircuitOperation proto into a CircuitOperation.
 
         Args:
             proto: The proto object to be deserialized.
-            arg_function_language: The `arg_function_language` field from
-                `Program.Language`.
             constants: The list of Constant protos referenced by constant
                 table indices in `proto`. This list should already have been
                 parsed to produce 'deserialized_constants'.
@@ -252,12 +76,10 @@ class CircuitOpDeserializer(OpDeserializer):
 
         Returns:
             The deserialized CircuitOperation represented by `proto`.
+
+        Raises:
+            ValueError: If the circuit operatio proto cannot be deserialied because it is malformed.
         """
-        if constants is None or deserialized_constants is None:
-            raise ValueError(
-                'CircuitOp deserialization requires a constants list and a corresponding list of '
-                'post-deserialization values (deserialized_constants).'
-            )
         if len(deserialized_constants) <= proto.circuit_constant_index:
             raise ValueError(
                 f'Constant index {proto.circuit_constant_index} in CircuitOperation '
@@ -291,11 +113,7 @@ class CircuitOpDeserializer(OpDeserializer):
             for entry in proto.measurement_key_map.entries
         }
         arg_map = {
-            arg_func_langs.arg_from_proto(
-                entry.key, arg_function_language=arg_function_language
-            ): arg_func_langs.arg_from_proto(
-                entry.value, arg_function_language=arg_function_language
-            )
+            arg_func_langs.arg_from_proto(entry.key): arg_func_langs.arg_from_proto(entry.value)
             for entry in proto.arg_map.entries
         }
 
@@ -315,11 +133,24 @@ class CircuitOpDeserializer(OpDeserializer):
                     f'\nFull arg: {arg}'
                 )
 
-        return cirq.CircuitOperation(
+        if proto.HasField('repeat_until'):
+            repeat_until = arg_func_langs.condition_from_proto(proto.repeat_until)
+        else:
+            repeat_until = None
+
+        circuit_op = cirq.CircuitOperation(
             circuit,
             repetitions,
             qubit_map,
             measurement_key_map,
-            arg_map,  # type: ignore
+            arg_map,
             rep_ids,
+            use_repetition_ids=proto.use_repetition_ids,
+            repeat_until=repeat_until,
         )
+        if len(proto.conditioned_on):
+            conditions = [
+                arg_func_langs.condition_from_proto(condition) for condition in proto.conditioned_on
+            ]
+            return circuit_op.with_classical_controls(*conditions)
+        return circuit_op

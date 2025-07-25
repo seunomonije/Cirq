@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Optional
+from __future__ import annotations
 
 import collections
 
@@ -56,7 +56,7 @@ class Block:
         left: bool = False,
         right: bool = False,
         bottom: bool = False,
-        crossing_char: Optional[str] = None,
+        crossing_char: str | None = None,
     ):
         """Draws lines in the box using the given character set.
 
@@ -106,7 +106,7 @@ class Block:
 
         self._prev_curve_grid_chars = grid_characters
 
-    def render(self, width: int, height: int) -> List[str]:
+    def render(self, width: int, height: int) -> list[str]:
         """Returns a list of text lines representing the block's contents.
 
         Args:
@@ -157,10 +157,10 @@ class Block:
 class BlockDiagramDrawer:
     """Aligns text and curve data placed onto an abstract 2d grid of blocks."""
 
-    def __init__(self):
-        self._blocks = collections.defaultdict(Block)  # type: Dict[Tuple[int, int], Block]
-        self._min_widths = collections.defaultdict(lambda: 0)  # type: Dict[int, int]
-        self._min_heights = collections.defaultdict(lambda: 0)  # type: Dict[int, int]
+    def __init__(self) -> None:
+        self._blocks: dict[tuple[int, int], Block] = collections.defaultdict(Block)
+        self._min_widths: dict[int, int] = collections.defaultdict(lambda: 0)
+        self._min_heights: dict[int, int] = collections.defaultdict(lambda: 0)
 
         # Populate the origin.
         _ = self._blocks[(0, 0)]
@@ -188,8 +188,8 @@ class BlockDiagramDrawer:
     def render(
         self,
         *,
-        block_span_x: Optional[int] = None,
-        block_span_y: Optional[int] = None,
+        block_span_x: int | None = None,
+        block_span_y: int | None = None,
         min_block_width: int = 0,
         min_block_height: int = 0,
     ) -> str:
@@ -212,13 +212,11 @@ class BlockDiagramDrawer:
         # Determine desired size of diagram in blocks.
         if block_span_x is None:
             block_span_x = 1 + max(
-                max(x for x, _ in self._blocks.keys()),
-                max(self._min_widths.keys()),
+                max(x for x, _ in self._blocks.keys()), max(self._min_widths.keys())
             )
         if block_span_y is None:
             block_span_y = 1 + max(
-                max(y for _, y in self._blocks.keys()),
-                max(self._min_heights.keys()),
+                max(y for _, y in self._blocks.keys()), max(self._min_heights.keys())
             )
 
         # Method for accessing blocks without creating new entries.
@@ -253,10 +251,10 @@ class BlockDiagramDrawer:
         }
 
         # Paste together all of the rows of rendered block content.
-        out_lines = []  # type: List[str]
+        out_lines: list[str] = []
         for y in range(block_span_y):
             for by in range(heights[y]):
-                out_line_chunks = []  # type: List[str]
+                out_line_chunks: list[str] = []
                 for x in range(block_span_x):
                     out_line_chunks.extend(block_renders[x, y][by])
                 out_lines.append(''.join(out_line_chunks).rstrip())

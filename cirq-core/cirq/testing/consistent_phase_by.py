@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from typing import Any
 
 import numpy as np
 import sympy
 
-from cirq import protocols, linalg
+from cirq import linalg, protocols
 from cirq.testing import lin_alg_utils
 
 
@@ -50,8 +52,5 @@ def assert_phase_by_is_consistent_with_unitary(val: Any):
             expected[s] *= np.conj(p)
 
             lin_alg_utils.assert_allclose_up_to_global_phase(
-                actual,
-                expected,
-                atol=1e-8,
-                err_msg=f'Phased unitary was incorrect for index #{i}',
+                actual, expected, atol=1e-8, err_msg=f'Phased unitary was incorrect for index #{i}'
             )

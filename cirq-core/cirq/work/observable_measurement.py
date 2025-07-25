@@ -1,10 +1,10 @@
-# Copyright 2020 The Cirq developers
+# Copyright 2020 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,24 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import abc
 import dataclasses
 import itertools
 import os
 import tempfile
 import warnings
-from typing import Optional, Iterable, Dict, List, Tuple, TYPE_CHECKING, Set, Sequence
+from typing import Any, Iterable, Mapping, Sequence, TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 import sympy
-from cirq import circuits, study, ops, value
+
+from cirq import circuits, ops, protocols, study, value
 from cirq._doc import document
-from cirq.protocols import json_serializable_dataclass, to_json
-from cirq.work.observable_measurement_data import BitstringAccumulator
-from cirq.work.observable_settings import (
-    InitObsSetting,
-    _MeasurementSpec,
+from cirq.work.observable_grouping import group_settings_greedy, GROUPER_T
+from cirq.work.observable_measurement_data import (
+    BitstringAccumulator,
+    flatten_grouped_results,
+    ObservableMeasuredResult,
 )
+from cirq.work.observable_settings import _MeasurementSpec, InitObsSetting, observables_to_settings
 
 if TYPE_CHECKING:
     import cirq
@@ -47,10 +52,8 @@ document(
 
 
 def _with_parameterized_layers(
-    circuit: 'cirq.Circuit',
-    qubits: Sequence['cirq.Qid'],
-    needs_init_layer: bool,
-) -> 'cirq.Circuit':
+    circuit: cirq.AbstractCircuit, qubits: Sequence[cirq.Qid], needs_init_layer: bool
+) -> cirq.Circuit:
     """Return a copy of the input circuit with parameterized single-qubit rotations.
 
     These rotations flank the circuit: the initial two layers of X and Y gates
@@ -62,16 +65,16 @@ def _with_parameterized_layers(
     "{qubit}-Xf" and "{qubit}-Yf" and are use to change the frame of the
     qubit before measurement, effectively measuring in bases other than Z.
     """
-    x_beg_mom = ops.Moment([ops.X(q) ** sympy.Symbol(f'{q}-Xi') for q in qubits])
-    y_beg_mom = ops.Moment([ops.Y(q) ** sympy.Symbol(f'{q}-Yi') for q in qubits])
-    x_end_mom = ops.Moment([ops.X(q) ** sympy.Symbol(f'{q}-Xf') for q in qubits])
-    y_end_mom = ops.Moment([ops.Y(q) ** sympy.Symbol(f'{q}-Yf') for q in qubits])
-    meas_mom = ops.Moment([ops.measure(*qubits, key='z')])
+    x_beg_mom = circuits.Moment([ops.X(q) ** sympy.Symbol(f'{q}-Xi') for q in qubits])
+    y_beg_mom = circuits.Moment([ops.Y(q) ** sympy.Symbol(f'{q}-Yi') for q in qubits])
+    x_end_mom = circuits.Moment([ops.X(q) ** sympy.Symbol(f'{q}-Xf') for q in qubits])
+    y_end_mom = circuits.Moment([ops.Y(q) ** sympy.Symbol(f'{q}-Yf') for q in qubits])
+    meas_mom = circuits.Moment([ops.measure(*qubits, key='z')])
     if needs_init_layer:
         total_circuit = circuits.Circuit([x_beg_mom, y_beg_mom])
-        total_circuit += circuit.copy()
+        total_circuit += circuit.unfreeze()
     else:
-        total_circuit = circuit.copy()
+        total_circuit = circuit.unfreeze()
     total_circuit.append([x_end_mom, y_end_mom, meas_mom])
     return total_circuit
 
@@ -89,7 +92,7 @@ class StoppingCriteria(abc.ABC):
         """
 
 
-@json_serializable_dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class VarianceStoppingCriteria(StoppingCriteria):
     """Stop sampling when average variance per term drops below a variance bound."""
 
@@ -111,8 +114,11 @@ class VarianceStoppingCriteria(StoppingCriteria):
             return 0
         return self.repetitions_per_chunk
 
+    def _json_dict_(self):
+        return protocols.dataclass_json_dict(self)
 
-@json_serializable_dataclass(frozen=True)
+
+@dataclasses.dataclass(frozen=True)
 class RepetitionsStoppingCriteria(StoppingCriteria):
     """Stop sampling when the number of repetitions has been reached."""
 
@@ -128,8 +134,11 @@ class RepetitionsStoppingCriteria(StoppingCriteria):
         to_do_next = min(self.repetitions_per_chunk, todo)
         return to_do_next
 
+    def _json_dict_(self):
+        return protocols.dataclass_json_dict(self)
 
-_OBS_TO_PARAM_VAL: Dict[Tuple['cirq.Pauli', bool], Tuple[float, float]] = {
+
+_OBS_TO_PARAM_VAL: dict[tuple[cirq.Pauli, bool], tuple[float, float]] = {
     (ops.X, False): (0, -1 / 2),
     (ops.X, True): (0, +1 / 2),
     (ops.Y, False): (1 / 2, 0),
@@ -141,7 +150,7 @@ _OBS_TO_PARAM_VAL: Dict[Tuple['cirq.Pauli', bool], Tuple[float, float]] = {
 second element in the key is whether to measure in the positive or negative (flipped) basis
 for readout symmetrization."""
 
-_STATE_TO_PARAM_VAL: Dict['_NamedOneQubitState', Tuple[float, float]] = {
+_STATE_TO_PARAM_VAL: dict[_NamedOneQubitState, tuple[float, float]] = {
     value.KET_PLUS: (0, +1 / 2),
     value.KET_MINUS: (0, -1 / 2),
     value.KET_IMAG: (-1 / 2, 0),
@@ -155,9 +164,9 @@ _STATE_TO_PARAM_VAL: Dict['_NamedOneQubitState', Tuple[float, float]] = {
 def _get_params_for_setting(
     setting: InitObsSetting,
     flips: Iterable[bool],
-    qubits: Sequence['cirq.Qid'],
+    qubits: Sequence[cirq.Qid],
     needs_init_layer: bool,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Return the parameter dictionary for the given setting.
 
     This must be used in conjunction with a circuit generated by
@@ -170,6 +179,7 @@ def _get_params_for_setting(
     if we know that `setting.init_state` is the all-zeros state and
     `needs_init_layer` is False.
     """
+    setting = _pad_setting(setting, qubits)
     params = {}
     for qubit, flip in itertools.zip_longest(qubits, flips):
         if qubit is None or flip is None:
@@ -196,9 +206,9 @@ def _get_params_for_setting(
 
 def _pad_setting(
     max_setting: InitObsSetting,
-    qubits: List['cirq.Qid'],
+    qubits: Sequence[cirq.Qid],
     pad_init_state_with=value.KET_ZERO,
-    pad_obs_with: 'cirq.Gate' = ops.Z,
+    pad_obs_with: cirq.Gate = ops.Z,
 ) -> InitObsSetting:
     """Pad `max_setting`'s `init_state` and `observable` with `pad_xx_with` operations
     (defaults:  |0> and Z) so each max_setting has the same qubits. We need this
@@ -219,7 +229,7 @@ def _pad_setting(
     return InitObsSetting(init_state=init_state, observable=obs)
 
 
-def _aggregate_n_repetitions(next_chunk_repetitions: Set[int]) -> int:
+def _aggregate_n_repetitions(next_chunk_repetitions: set[int]) -> int:
     """A stopping criteria can request a different number of more_repetitions for each
     measurement spec. For batching efficiency, we take the max and issue a warning in this case."""
     if len(next_chunk_repetitions) == 1:
@@ -235,10 +245,10 @@ def _aggregate_n_repetitions(next_chunk_repetitions: Set[int]) -> int:
 
 
 def _check_meas_specs_still_todo(
-    meas_specs: List[_MeasurementSpec],
-    accumulators: Dict[_MeasurementSpec, BitstringAccumulator],
+    meas_specs: list[_MeasurementSpec],
+    accumulators: Mapping[_MeasurementSpec, BitstringAccumulator],
     stopping_criteria: StoppingCriteria,
-) -> Tuple[List[_MeasurementSpec], int]:
+) -> tuple[list[_MeasurementSpec], int]:
     """Filter `meas_specs` in case some are done.
 
     In the sampling loop in `measure_grouped_settings`, we submit
@@ -246,7 +256,7 @@ def _check_meas_specs_still_todo(
     removing `meas_spec`s from the loop if they are done.
     """
     still_todo = []
-    repetitions_set: Set[int] = set()
+    repetitions_set: set[int] = set()
     for meas_spec in meas_specs:
         accumulator = accumulators[meas_spec]
         more_repetitions = stopping_criteria.more_repetitions(accumulator)
@@ -295,7 +305,7 @@ class _FlippyMeasSpec:
 
     meas_spec: _MeasurementSpec
     flips: np.ndarray
-    qubits: Sequence['cirq.Qid']
+    qubits: Sequence[cirq.Qid]
 
     def param_tuples(self, *, needs_init_layer=True):
         yield from _get_params_for_setting(
@@ -310,9 +320,9 @@ class _FlippyMeasSpec:
 def _subdivide_meas_specs(
     meas_specs: Iterable[_MeasurementSpec],
     repetitions: int,
-    qubits: Sequence['cirq.Qid'],
+    qubits: Sequence[cirq.Qid],
     readout_symmetrization: bool,
-) -> Tuple[List[_FlippyMeasSpec], int]:
+) -> tuple[list[_FlippyMeasSpec], int]:
     """Split measurement specs into sub-jobs for readout symmetrization
 
     In readout symmetrization, we first run the "normal" circuit followed
@@ -324,22 +334,12 @@ def _subdivide_meas_specs(
     flippy_mspecs = []
     for meas_spec in meas_specs:
         all_normal = np.zeros(n_qubits, dtype=bool)
-        flippy_mspecs.append(
-            _FlippyMeasSpec(
-                meas_spec=meas_spec,
-                flips=all_normal,
-                qubits=qubits,
-            )
-        )
+        flippy_mspecs.append(_FlippyMeasSpec(meas_spec=meas_spec, flips=all_normal, qubits=qubits))
 
         if readout_symmetrization:
             all_flipped = np.ones(n_qubits, dtype=bool)
             flippy_mspecs.append(
-                _FlippyMeasSpec(
-                    meas_spec=meas_spec,
-                    flips=all_flipped,
-                    qubits=qubits,
-                )
+                _FlippyMeasSpec(meas_spec=meas_spec, flips=all_flipped, qubits=qubits)
             )
 
     if readout_symmetrization:
@@ -356,8 +356,8 @@ def _to_sweep(param_tuples):
 
 
 def _parse_checkpoint_options(
-    checkpoint: bool, checkpoint_fn: Optional[str], checkpoint_other_fn: Optional[str]
-) -> Tuple[Optional[str], Optional[str]]:
+    checkpoint: bool, checkpoint_fn: str | None, checkpoint_other_fn: str | None
+) -> tuple[str | None, str | None]:
     """Parse the checkpoint-oriented options in `measure_grouped_settings`.
 
     This function contains the validation and defaults logic. Please see
@@ -366,6 +366,11 @@ def _parse_checkpoint_options(
     Returns:
         checkpoint_fn, checkpoint_other_fn: Parsed or default filenames for primary and previous
             checkpoint files.
+
+    Raises:
+        ValueError: If a `checkpoint_fn` was specified, but `checkpoint` was False, if the
+            `checkpoint_fn` is not of the form filename.json, or if `checkout_fn` and
+            `checkpoint_other_fn` are the same filename.
     """
     if not checkpoint:
         if checkpoint_fn is not None or checkpoint_other_fn is not None:
@@ -409,7 +414,53 @@ def _parse_checkpoint_options(
     return checkpoint_fn, checkpoint_other_fn
 
 
-def _needs_init_layer(grouped_settings: Dict[InitObsSetting, List[InitObsSetting]]) -> bool:
+@dataclasses.dataclass(frozen=True)
+class CheckpointFileOptions:
+    """Options to configure "checkpointing" to save intermediate results.
+
+    Args:
+        checkpoint: If set to True, save cumulative raw results at the end
+            of each iteration of the sampling loop. Load in these results
+            with `cirq.read_json`.
+        checkpoint_fn: The filename for the checkpoint file. If `checkpoint`
+            is set to True and this is not specified, a file in a temporary
+            directory will be used.
+        checkpoint_other_fn: The filename for another checkpoint file, which
+            contains the previous checkpoint. This lets us avoid losing data if
+            a failure occurs during checkpoint writing. If `checkpoint`
+            is set to True and this is not specified, a file in a temporary
+            directory will be used. If `checkpoint` is set to True and
+            `checkpoint_fn` is specified but this argument is *not* specified,
+            "{checkpoint_fn}.prev.json" will be used.
+    """
+
+    checkpoint: bool = False
+    checkpoint_fn: str | None = None
+    checkpoint_other_fn: str | None = None
+
+    def __post_init__(self):
+        fn, other_fn = _parse_checkpoint_options(
+            self.checkpoint, self.checkpoint_fn, self.checkpoint_other_fn
+        )
+        object.__setattr__(self, 'checkpoint_fn', fn)
+        object.__setattr__(self, 'checkpoint_other_fn', other_fn)
+
+    def maybe_to_json(self, obj: Any):
+        """Call `cirq.to_json with `value` according to the configuration options in this class.
+
+        If `checkpoint=False`, nothing will happen. Otherwise, we will use `checkpoint_fn` and
+        `checkpoint_other_fn` as the destination JSON file as described in the class docstring.
+        """
+        if not self.checkpoint:
+            return
+        assert self.checkpoint_fn is not None, 'mypy'
+        assert self.checkpoint_other_fn is not None, 'mypy'
+        if os.path.exists(self.checkpoint_fn):
+            os.replace(self.checkpoint_fn, self.checkpoint_other_fn)
+        protocols.to_json(obj, self.checkpoint_fn)
+
+
+def _needs_init_layer(grouped_settings: dict[InitObsSetting, list[InitObsSetting]]) -> bool:
     """Helper function to go through init_states and determine if any of them need an
     initialization layer of single-qubit gates."""
     for max_setting in grouped_settings.keys():
@@ -419,18 +470,16 @@ def _needs_init_layer(grouped_settings: Dict[InitObsSetting, List[InitObsSetting
 
 
 def measure_grouped_settings(
-    circuit: 'cirq.Circuit',
-    grouped_settings: Dict[InitObsSetting, List[InitObsSetting]],
-    sampler: 'cirq.Sampler',
+    circuit: cirq.AbstractCircuit,
+    grouped_settings: dict[InitObsSetting, list[InitObsSetting]],
+    sampler: cirq.Sampler,
     stopping_criteria: StoppingCriteria,
     *,
     readout_symmetrization: bool = False,
-    circuit_sweep: 'cirq.study.sweepable.SweepLike' = None,
-    readout_calibrations: Optional[BitstringAccumulator] = None,
-    checkpoint: bool = False,
-    checkpoint_fn: Optional[str] = None,
-    checkpoint_other_fn: Optional[str] = None,
-) -> List[BitstringAccumulator]:
+    circuit_sweep: cirq.Sweepable = None,
+    readout_calibrations: BitstringAccumulator | None = None,
+    checkpoint: CheckpointFileOptions = CheckpointFileOptions(),
+) -> list[BitstringAccumulator]:
     """Measure a suite of grouped InitObsSetting settings.
 
     This is a low-level API for accessing the observable measurement
@@ -458,49 +507,33 @@ def measure_grouped_settings(
             in `circuit`. The total sweep is the product of the circuit sweep
             with parameter settings for the single-qubit basis-change rotations.
         readout_calibrations: The result of `calibrate_readout_error`.
-        checkpoint: If set to True, save cumulative raw results at the end
-            of each iteration of the sampling loop. Load in these results
-            with `cirq.read_json`.
-        checkpoint_fn: The filename for the checkpoint file. If `checkpoint`
-            is set to True and this is not specified, a file in a temporary
-            directory will be used.
-        checkpoint_other_fn: The filename for another checkpoint file, which
-            contains the previous checkpoint. This lets us avoid losing data if
-            a failure occurs during checkpoint writing. If `checkpoint`
-            is set to True and this is not specified, a file in a temporary
-            directory will be used. If `checkpoint` is set to True and
-            `checkpoint_fn` is specified but this argument is *not* specified,
-            "{checkpoint_fn}.prev.json" will be used.
+        checkpoint: Options to set up optional checkpointing of intermediate
+            data for each iteration of the sampling loop. See the documentation
+            for `CheckpointFileOptions` for more. Load in these results with
+            `cirq.read_json`.
+
+    Raises:
+        ValueError: If readout calibration is specified, but `readout_symmetrization
+            is not True.
     """
     if readout_calibrations is not None and not readout_symmetrization:
         raise ValueError("Readout calibration only works if `readout_symmetrization` is enabled.")
 
-    checkpoint_fn, checkpoint_other_fn = _parse_checkpoint_options(
-        checkpoint=checkpoint, checkpoint_fn=checkpoint_fn, checkpoint_other_fn=checkpoint_other_fn
-    )
     qubits = sorted({q for ms in grouped_settings.keys() for q in ms.init_state.qubits})
     qubit_to_index = {q: i for i, q in enumerate(qubits)}
 
     needs_init_layer = _needs_init_layer(grouped_settings)
     measurement_param_circuit = _with_parameterized_layers(circuit, qubits, needs_init_layer)
-    grouped_settings = {
-        _pad_setting(max_setting, qubits): settings
-        for max_setting, settings in grouped_settings.items()
-    }
-    circuit_sweep = study.UnitSweep if circuit_sweep is None else study.to_sweep(circuit_sweep)
 
     # meas_spec provides a key for accumulators.
     # meas_specs_todo is a mutable list. We will pop things from it as various
     # specs are measured to the satisfaction of the stopping criteria
     accumulators = {}
     meas_specs_todo = []
-    for max_setting, circuit_params in itertools.product(
-        grouped_settings.keys(), circuit_sweep.param_tuples()
+    for max_setting, param_resolver in itertools.product(
+        grouped_settings.keys(), study.to_resolvers(circuit_sweep)
     ):
-        # The type annotation for Param is just `Iterable`.
-        # We make sure that it's truly a tuple.
-        circuit_params = dict(circuit_params)
-
+        circuit_params = param_resolver.param_dict
         meas_spec = _MeasurementSpec(max_setting=max_setting, circuit_params=circuit_params)
         accumulator = BitstringAccumulator(
             meas_spec=meas_spec,
@@ -546,11 +579,125 @@ def measure_grouped_settings(
             bitstrings = np.logical_xor(flippy_ms.flips, result.measurements['z'])
             accumulator.consume_results(bitstrings.astype(np.uint8, casting='safe'))
 
-        if checkpoint:
-            assert checkpoint_fn is not None, 'mypy'
-            assert checkpoint_other_fn is not None, 'mypy'
-            if os.path.exists(checkpoint_fn):
-                os.replace(checkpoint_fn, checkpoint_other_fn)
-            to_json(list(accumulators.values()), checkpoint_fn)
+        checkpoint.maybe_to_json(list(accumulators.values()))
 
     return list(accumulators.values())
+
+
+_GROUPING_FUNCS: dict[str, GROUPER_T] = {'greedy': group_settings_greedy}
+
+
+def _parse_grouper(grouper: str | GROUPER_T = group_settings_greedy) -> GROUPER_T:
+    """Logic for turning a named grouper into one of the build-in groupers in support of the
+    high-level `measure_observables` API."""
+    if isinstance(grouper, str):
+        try:
+            grouper = _GROUPING_FUNCS[grouper.lower()]
+        except KeyError:
+            raise ValueError(f"Unknown grouping function {grouper}")
+    return grouper
+
+
+def _get_all_qubits(
+    circuit: cirq.AbstractCircuit, observables: Iterable[cirq.PauliString]
+) -> list[cirq.Qid]:
+    """Helper function for `measure_observables` to get all qubits from a circuit and a
+    collection of observables."""
+    qubit_set = set()
+    for obs in observables:
+        qubit_set |= set(obs.qubits)
+    qubit_set |= circuit.all_qubits()
+    return sorted(qubit_set)
+
+
+def measure_observables(
+    circuit: cirq.AbstractCircuit,
+    observables: Iterable[cirq.PauliString],
+    sampler: cirq.Simulator | cirq.Sampler,
+    stopping_criteria: StoppingCriteria,
+    *,
+    readout_symmetrization: bool = False,
+    circuit_sweep: cirq.Sweepable | None = None,
+    grouper: str | GROUPER_T = group_settings_greedy,
+    readout_calibrations: BitstringAccumulator | None = None,
+    checkpoint: CheckpointFileOptions = CheckpointFileOptions(),
+) -> list[ObservableMeasuredResult]:
+    """Measure a collection of PauliString observables for a state prepared by a Circuit.
+
+    If you need more control over the process, please see `measure_grouped_settings` for a
+    lower-level API. If you would like your results returned as a pandas DataFrame,
+    please see `measure_observables_df`.
+
+    Args:
+        circuit: The circuit used to prepare the state to measure. This can contain parameters,
+            in which case you should also specify `circuit_sweep`.
+        observables: A collection of PauliString observables to measure. These will be grouped
+            into simultaneously-measurable groups, see `grouper` argument.
+        sampler: The sampler.
+        stopping_criteria: A StoppingCriteria object to indicate how precisely to sample
+            measurements for estimating observables.
+        readout_symmetrization: If set to True, each run will be split into two: one normal and
+            one where a bit flip is incorporated prior to measurement. In the latter case, the
+            measured bit will be flipped back classically and accumulated together. This causes
+            readout error to appear symmetric, p(0|0) = p(1|1).
+        circuit_sweep: Additional parameter sweeps for parameters contained in `circuit`. The
+            total sweep is the product of the circuit sweep with parameter settings for the
+            single-qubit basis-change rotations.
+        grouper: Either "greedy" or a function that groups lists of `InitObsSetting`. See the
+            documentation for the `grouped_settings` argument of `measure_grouped_settings` for
+            full details.
+        readout_calibrations: The result of `calibrate_readout_error`.
+        checkpoint: Options to set up optional checkpointing of intermediate data for each
+            iteration of the sampling loop. See the documentation for `CheckpointFileOptions` for
+            more. Load in these results with `cirq.read_json`.
+
+    Returns:
+        A list of ObservableMeasuredResult; one for each input PauliString.
+    """
+    qubits = _get_all_qubits(circuit, observables)
+    settings = list(observables_to_settings(observables, qubits))
+    actual_grouper = _parse_grouper(grouper)
+    grouped_settings = actual_grouper(settings)
+
+    accumulators = measure_grouped_settings(
+        circuit=circuit,
+        grouped_settings=grouped_settings,
+        sampler=sampler,
+        stopping_criteria=stopping_criteria,
+        circuit_sweep=circuit_sweep,
+        readout_symmetrization=readout_symmetrization,
+        readout_calibrations=readout_calibrations,
+        checkpoint=checkpoint,
+    )
+    return flatten_grouped_results(accumulators)
+
+
+def measure_observables_df(
+    circuit: cirq.AbstractCircuit,
+    observables: Iterable[cirq.PauliString],
+    sampler: cirq.Simulator | cirq.Sampler,
+    stopping_criteria: StoppingCriteria,
+    *,
+    readout_symmetrization: bool = False,
+    circuit_sweep: cirq.Sweepable | None = None,
+    grouper: str | GROUPER_T = group_settings_greedy,
+    readout_calibrations: BitstringAccumulator | None = None,
+    checkpoint: CheckpointFileOptions = CheckpointFileOptions(),
+):
+    """Measure observables and return resulting data as a Pandas dataframe.
+
+    Please see `measure_observables` for argument documentation.
+    """
+    results = measure_observables(
+        circuit=circuit,
+        observables=observables,
+        sampler=sampler,
+        stopping_criteria=stopping_criteria,
+        readout_symmetrization=readout_symmetrization,
+        circuit_sweep=circuit_sweep,
+        grouper=grouper,
+        readout_calibrations=readout_calibrations,
+        checkpoint=checkpoint,
+    )
+    df = pd.DataFrame(res.as_dict() for res in results)
+    return df

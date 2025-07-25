@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import pytest
 
 import cirq
@@ -21,14 +23,15 @@ import cirq.contrib.acquaintance as cca
 @pytest.mark.parametrize(
     'circuit_dag,sorted_nodes',
     [
-        (dag, cca.random_topological_sort(dag))
+        (dag, tuple(cca.random_topological_sort(dag)))
         for dag in [
-            cirq.CircuitDag.from_circuit(cirq.testing.random_circuit(10, 10, 0.5)) for _ in range(5)
+            cirq.contrib.CircuitDag.from_circuit(cirq.testing.random_circuit(10, 10, 0.5))
+            for _ in range(5)
         ]
         for _ in range(5)
     ],
 )
-def test_topological_sort(circuit_dag, sorted_nodes):
+def test_topological_sort(circuit_dag, sorted_nodes) -> None:
     sorted_nodes = list(sorted_nodes)
     assert cca.is_topologically_sorted(circuit_dag, (node.val for node in sorted_nodes))
 

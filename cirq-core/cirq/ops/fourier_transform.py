@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,19 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import AbstractSet, Any, Dict, Union
+from __future__ import annotations
+
+from typing import AbstractSet, Any
 
 import numpy as np
 import sympy
 
 import cirq
-from cirq import value, _compat
+from cirq import _compat, value
 from cirq.ops import raw_types
 
 
 @value.value_equality
 class QuantumFourierTransformGate(raw_types.Gate):
-    """Switches from the computational basis to the frequency basis."""
+    r"""Switches from the computational basis to the frequency basis.
+
+    This gate has the unitary
+
+    $$
+    \frac{1}{2^{n/2}}\sum_{x,y=0}^{2^n-1} \omega^{xy} |x\rangle\langle y|
+    $$
+
+    where
+    $$
+    \omega = e^{\frac{2\pi i}{2^n}}
+    $$
+    """
 
     def __init__(self, num_qubits: int, *, without_reverse: bool = False):
         """Inits QuantumFourierTransformGate.
@@ -40,12 +54,8 @@ class QuantumFourierTransformGate(raw_types.Gate):
         self._num_qubits = num_qubits
         self._without_reverse = without_reverse
 
-    def _json_dict_(self) -> Dict[str, Any]:
-        return {
-            'cirq_type': self.__class__.__name__,
-            'num_qubits': self._num_qubits,
-            'without_reverse': self._without_reverse,
-        }
+    def _json_dict_(self) -> dict[str, Any]:
+        return {'num_qubits': self._num_qubits, 'without_reverse': self._without_reverse}
 
     def _value_equality_values_(self):
         return self._num_qubits, self._without_reverse
@@ -79,9 +89,7 @@ class QuantumFourierTransformGate(raw_types.Gate):
             f'without_reverse={self._without_reverse!r})'
         )
 
-    def _circuit_diagram_info_(
-        self, args: 'cirq.CircuitDiagramInfoArgs'
-    ) -> 'cirq.CircuitDiagramInfo':
+    def _circuit_diagram_info_(self, args: cirq.CircuitDiagramInfoArgs) -> cirq.CircuitDiagramInfo:
         return cirq.CircuitDiagramInfo(
             wire_symbols=(str(self),) + tuple(f'#{k+1}' for k in range(1, self._num_qubits)),
             exponent_qubit_index=0,
@@ -90,18 +98,30 @@ class QuantumFourierTransformGate(raw_types.Gate):
 
 @value.value_equality
 class PhaseGradientGate(raw_types.Gate):
-    """Phases each state |k⟩ out of n by e^(2*pi*i*k/n*exponent)."""
+    r"""Phases all computational basis states proportional to the integer value of the state.
 
-    def __init__(self, *, num_qubits: int, exponent: Union[float, sympy.Basic]):
+    The gate `cirq.PhaseGradientGate(n, t)` has the unitary
+    $$
+    \sum_{x=0}^{2^n-1} \omega^x |x\rangle \langle x|
+    $$
+    where
+    $$
+    \omega=e^{2 \pi i/2^n}
+    $$
+
+    This gate makes up a portion of the quantum fourier transform.
+    """
+
+    def __init__(self, *, num_qubits: int, exponent: float | sympy.Basic):
         self._num_qubits = num_qubits
-        self.exponent = exponent
+        self._exponent = exponent
 
-    def _json_dict_(self) -> Dict[str, Any]:
-        return {
-            'cirq_type': self.__class__.__name__,
-            'num_qubits': self._num_qubits,
-            'exponent': self.exponent,
-        }
+    @property
+    def exponent(self) -> float | sympy.Basic:
+        return self._exponent
+
+    def _json_dict_(self) -> dict[str, Any]:
+        return {'num_qubits': self._num_qubits, 'exponent': self.exponent}
 
     def _value_equality_values_(self):
         return self._num_qubits, self.exponent
@@ -111,9 +131,9 @@ class PhaseGradientGate(raw_types.Gate):
 
     def _decompose_(self, qubits):
         for i, q in enumerate(qubits):
-            yield cirq.Z(q) ** (self.exponent / 2 ** i)
+            yield cirq.Z(q) ** (self.exponent / 2**i)
 
-    def _apply_unitary_(self, args: 'cirq.ApplyUnitaryArgs'):
+    def _apply_unitary_(self, args: cirq.ApplyUnitaryArgs):
         if isinstance(self.exponent, sympy.Basic):
             return NotImplemented
 
@@ -126,8 +146,7 @@ class PhaseGradientGate(raw_types.Gate):
 
     def __pow__(self, power):
         new_exponent = cirq.mul(self.exponent, power, NotImplemented)
-        if new_exponent is NotImplemented:
-            # coverage: ignore
+        if new_exponent is NotImplemented:  # pragma: no cover
             return NotImplemented
         return PhaseGradientGate(num_qubits=self._num_qubits, exponent=new_exponent)
 
@@ -148,11 +167,9 @@ class PhaseGradientGate(raw_types.Gate):
         return cirq.parameter_names(self.exponent)
 
     def _resolve_parameters_(
-        self, resolver: 'cirq.ParamResolver', recursive: bool
-    ) -> 'PhaseGradientGate':
+        self, resolver: cirq.ParamResolver, recursive: bool
+    ) -> PhaseGradientGate:
         new_exponent = cirq.resolve_parameters(self.exponent, resolver, recursive)
-        if new_exponent is self.exponent:
-            return self
         return PhaseGradientGate(num_qubits=self._num_qubits, exponent=new_exponent)
 
     def __str__(self) -> str:
@@ -165,9 +182,7 @@ class PhaseGradientGate(raw_types.Gate):
             f'exponent={_compat.proper_repr(self.exponent)})'
         )
 
-    def _circuit_diagram_info_(
-        self, args: 'cirq.CircuitDiagramInfoArgs'
-    ) -> 'cirq.CircuitDiagramInfo':
+    def _circuit_diagram_info_(self, args: cirq.CircuitDiagramInfoArgs) -> cirq.CircuitDiagramInfo:
         return cirq.CircuitDiagramInfo(
             wire_symbols=('Grad',) + tuple(f'#{k+1}' for k in range(1, self._num_qubits)),
             exponent=self.exponent,
@@ -175,9 +190,7 @@ class PhaseGradientGate(raw_types.Gate):
         )
 
 
-def qft(
-    *qubits: 'cirq.Qid', without_reverse: bool = False, inverse: bool = False
-) -> 'cirq.Operation':
+def qft(*qubits: cirq.Qid, without_reverse: bool = False, inverse: bool = False) -> cirq.Operation:
     """The quantum Fourier transform.
 
     Transforms a qubit register from the computational basis to the frequency
@@ -187,7 +200,7 @@ def qft(
     equivalently `cirq.inverse(cirq.qft(*qubits))`.
 
     Args:
-        qubits: The qubits to apply the qft to.
+        *qubits: The qubits to apply the qft to.
         without_reverse: When set, swap gates at the end of the qft are omitted.
             This reverses the qubit order relative to the standard qft effect,
             but makes the gate cheaper to apply.
@@ -199,6 +212,4 @@ def qft(
         A `cirq.Operation` applying the qft to the given qubits.
     """
     result = QuantumFourierTransformGate(len(qubits), without_reverse=without_reverse).on(*qubits)
-    if inverse:
-        result = cirq.inverse(result)
-    return result
+    return cirq.inverse(result) if inverse else result

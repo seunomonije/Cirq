@@ -1,8 +1,25 @@
-from typing import Optional, Iterator
+# Copyright 2022 The Cirq Developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import networkx as nx
+from __future__ import annotations
+
+from typing import Iterator, TYPE_CHECKING
 
 import cirq
+
+if TYPE_CHECKING:
+    import networkx as nx
 
 
 def get_grid_moments(
@@ -15,13 +32,12 @@ def get_grid_moments(
     columns, vertical from even rows, vertical from odd rows)
 
     Args:
-        graph: A NetworkX graph (probably generated from
+        problem_graph: A NetworkX graph (probably generated from
             `nx.grid_2d_graph(width, height)` whose nodes are (row, col)
             indices and whose edges optionally have a "weight" property which
             will be provided to the `exponent` argument of `two_qubit_gate`.
         two_qubit_gate: The two qubit gate to use. Should have `exponent`
             and `global_shift` arguments.
-
     """
     row_start = min(r for r, c in problem_graph.nodes)
     row_end = max(r for r, c in problem_graph.nodes) + 1
@@ -41,12 +57,12 @@ def get_grid_moments(
             for col in range(col_start + col_start_offset, col_end + col_end_offset, col_step):
                 node1 = (row, col)
                 if node1 not in problem_graph.nodes:
-                    continue  # coverage: ignore
+                    continue  # pragma: no cover
                 node2 = get_neighbor(row, col)
                 if node2 not in problem_graph.nodes:
-                    continue  # coverage: ignore
+                    continue  # pragma: no cover
                 if (node1, node2) not in problem_graph.edges:
-                    continue  # coverage: ignore
+                    continue  # pragma: no cover
 
                 weight = problem_graph.edges[node1, node2].get('weight', 1)
                 yield two_qubit_gate(exponent=weight, global_shift=-0.5).on(
@@ -89,40 +105,6 @@ def get_grid_moments(
     )
 
 
-class MergeNQubitGates(cirq.PointOptimizer):
-    """Optimizes runs of adjacent unitary n-qubit operations."""
-
-    def __init__(
-        self,
-        *,
-        n_qubits: int,
-    ):
-        super().__init__()
-        self.n_qubits = n_qubits
-
-    def optimization_at(
-        self, circuit: cirq.Circuit, index: int, op: cirq.Operation
-    ) -> Optional[cirq.PointOptimizationSummary]:
-        if len(op.qubits) != self.n_qubits:
-            return None
-
-        frontier = {q: index for q in op.qubits}
-        op_list = circuit.findall_operations_until_blocked(
-            frontier, is_blocker=lambda next_op: next_op.qubits != op.qubits
-        )
-        if len(op_list) <= 1:
-            return None
-        operations = [op for idx, op in op_list]
-        indices = [idx for idx, op in op_list]
-        matrix = cirq.linalg.dot(*(cirq.unitary(op) for op in operations[::-1]))
-
-        return cirq.PointOptimizationSummary(
-            clear_span=max(indices) + 1 - index,
-            clear_qubits=op.qubits,
-            new_operations=[cirq.MatrixGate(matrix).on(*op.qubits)],
-        )
-
-
 def simplify_expectation_value_circuit(circuit_sand: cirq.Circuit):
     """For low weight operators on low-degree circuits, we can simplify
     the circuit representation of an expectation value.
@@ -135,15 +117,14 @@ def simplify_expectation_value_circuit(circuit_sand: cirq.Circuit):
     things for you.
     """
     n_op = sum(1 for _ in circuit_sand.all_operations())
+    circuit = circuit_sand.copy()
     while True:
-        MergeNQubitGates(n_qubits=1).optimize_circuit(circuit_sand)
-        cirq.DropNegligible(tolerance=1e-6).optimize_circuit(circuit_sand)
-        MergeNQubitGates(n_qubits=2).optimize_circuit(circuit_sand)
-        cirq.DropNegligible(tolerance=1e-6)
-        cirq.DropEmptyMoments().optimize_circuit(circuit_sand)
-        new_n_op = sum(1 for _ in circuit_sand.all_operations())
-
-        if new_n_op < n_op:
-            n_op = new_n_op
-        else:
-            return
+        circuit = cirq.merge_k_qubit_unitaries(circuit, k=1)
+        circuit = cirq.drop_negligible_operations(circuit, atol=1e-6)
+        circuit = cirq.merge_k_qubit_unitaries(circuit, k=2)
+        circuit = cirq.drop_empty_moments(circuit)
+        new_n_op = sum(1 for _ in circuit.all_operations())
+        if new_n_op >= n_op:
+            break
+        n_op = new_n_op
+    circuit_sand._moments = circuit._moments

@@ -12,15 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Union, TYPE_CHECKING
+from __future__ import annotations
 
 import abc
+from typing import TYPE_CHECKING
 
 from cirq import circuits, devices, ops
-from cirq.contrib.acquaintance.gates import AcquaintanceOpportunityGate, SwapNetworkGate
 from cirq.contrib.acquaintance.bipartite import BipartiteSwapNetworkGate
-from cirq.contrib.acquaintance.shift_swap_network import ShiftSwapNetworkGate
+from cirq.contrib.acquaintance.gates import AcquaintanceOpportunityGate, SwapNetworkGate
 from cirq.contrib.acquaintance.permutation import PermutationGate
+from cirq.contrib.acquaintance.shift_swap_network import ShiftSwapNetworkGate
 
 if TYPE_CHECKING:
     import cirq
@@ -31,25 +32,19 @@ class AcquaintanceDevice(devices.Device, metaclass=abc.ABCMeta):
 
     gate_types = (AcquaintanceOpportunityGate, PermutationGate)
 
-    def validate_operation(self, operation: 'cirq.Operation') -> None:
+    def validate_operation(self, operation: cirq.Operation) -> None:
         if not (
             isinstance(operation, ops.GateOperation) and isinstance(operation.gate, self.gate_types)
         ):
             raise ValueError(
-                'not (isinstance({0!r}, {1!r}) and '
-                'ininstance({0!r}.gate, {2!r})'.format(operation, ops.Operation, self.gate_types)
+                f'not (isinstance({operation!r}, {ops.Operation!r}) and '
+                f'ininstance({operation!r}.gate, {self.gate_types!r})'
             )
 
 
-def is_acquaintance_strategy(circuit: 'cirq.Circuit') -> bool:
-    return isinstance(circuit._device, AcquaintanceDevice)
-
-
-def get_acquaintance_size(obj: Union[circuits.Circuit, ops.Operation]) -> int:
+def get_acquaintance_size(obj: circuits.Circuit | ops.Operation) -> int:
     """The maximum number of qubits to be acquainted with each other."""
     if isinstance(obj, circuits.Circuit):
-        if not is_acquaintance_strategy(obj):
-            raise TypeError('not is_acquaintance_strategy(circuit)')
         return max(tuple(get_acquaintance_size(op) for op in obj.all_operations()) or (0,))
     if not isinstance(obj, ops.Operation):
         raise TypeError('not isinstance(obj, (Circuit, Operation))')
@@ -74,7 +69,7 @@ class _UnconstrainedAcquaintanceDevice(AcquaintanceDevice):
     """An acquaintance device with no constraints other than of the gate types."""
 
     def __repr__(self) -> str:
-        return 'UnconstrainedAcquaintanceDevice'  # coverage: ignore
+        return 'UnconstrainedAcquaintanceDevice'  # pragma: no cover
 
 
 UnconstrainedAcquaintanceDevice = _UnconstrainedAcquaintanceDevice()

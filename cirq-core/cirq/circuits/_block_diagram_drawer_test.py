@@ -11,6 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import itertools
 
 import pytest
@@ -18,11 +21,11 @@ import pytest
 import cirq
 from cirq.circuits._block_diagram_drawer import BlockDiagramDrawer
 from cirq.circuits._box_drawing_character_data import (
-    NORMAL_BOX_CHARS,
-    BOLD_BOX_CHARS,
-    DOUBLED_BOX_CHARS,
     ASCII_BOX_CHARS,
+    BOLD_BOX_CHARS,
     BoxDrawCharacterSet,
+    DOUBLED_BOX_CHARS,
+    NORMAL_BOX_CHARS,
 )
 
 
@@ -31,13 +34,13 @@ def _assert_same_diagram(actual: str, expected: str):
         "Diagram differs from the desired diagram.\n"
         '\n'
         'Actual diagram:\n'
-        '{}\n'
+        f'{actual}\n'
         '\n'
         'Desired diagram:\n'
-        '{}\n'
+        f'{expected}\n'
         '\n'
         'Highlighted differences:\n'
-        '{}\n'.format(actual, expected, cirq.testing.highlight_text_differences(actual, expected))
+        f'{cirq.testing.highlight_text_differences(actual, expected)}\n'
     )
 
 
@@ -53,7 +56,7 @@ def _curve_pieces_diagram(chars: BoxDrawCharacterSet) -> BlockDiagramDrawer:
     return d
 
 
-def test_block_curve():
+def test_block_curve() -> None:
     d = _curve_pieces_diagram(NORMAL_BOX_CHARS)
     actual = d.render(min_block_width=5, min_block_height=5)
     expected = """
@@ -176,7 +179,7 @@ def test_block_curve():
     _assert_same_diagram(actual, expected)
 
 
-def test_mixed_block_curve():
+def test_mixed_block_curve() -> None:
     diagram = BlockDiagramDrawer()
     for a, b, c, d in itertools.product(range(3), repeat=4):
         x = (a * 3 + b) * 2
@@ -243,7 +246,7 @@ def test_mixed_block_curve():
     _assert_same_diagram(actual, expected)
 
 
-def test_lines_meet_content():
+def test_lines_meet_content() -> None:
     d = BlockDiagramDrawer()
     b = d.mutable_block(0, 0)
     b.content = 'long text\nwith multiple lines'
@@ -408,7 +411,7 @@ with multiple lines
     )
 
 
-def test_content_stretches_other_blocks():
+def test_content_stretches_other_blocks() -> None:
     d = BlockDiagramDrawer()
     d.mutable_block(0, 0).horizontal_alignment = 0.5
     d.mutable_block(1, 0).horizontal_alignment = 0.5
@@ -429,7 +432,7 @@ with multiple lines│
     )
 
 
-def test_lines_stretch_content():
+def test_lines_stretch_content() -> None:
     d = BlockDiagramDrawer()
     d.mutable_block(0, 0).left = 'l'
     d.mutable_block(2, 4).right = 'r'
@@ -448,7 +451,7 @@ def test_lines_stretch_content():
     )
 
 
-def test_indices():
+def test_indices() -> None:
     d = BlockDiagramDrawer()
     with pytest.raises(IndexError):
         d.mutable_block(-1, -1)

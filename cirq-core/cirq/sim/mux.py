@@ -17,28 +17,31 @@
 Filename is a reference to multiplexing.
 """
 
-from typing import List, Optional, Type, Union, cast, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Sequence, TYPE_CHECKING
 
 import numpy as np
 
-from cirq import circuits, protocols, study, devices, ops, value
+from cirq import circuits, devices, ops, protocols, study, value
 from cirq._doc import document
-from cirq.sim import sparse_simulator, density_matrix_simulator
+from cirq.sim import density_matrix_simulator, sparse_simulator
 from cirq.sim.clifford import clifford_simulator
+from cirq.transformers import measurement_transformers
 
 if TYPE_CHECKING:
     import cirq
 
-CIRCUIT_LIKE = Union[circuits.Circuit, ops.Gate, ops.OP_TREE]
+CIRCUIT_LIKE = circuits.Circuit | ops.Gate | ops.OP_TREE
 document(
-    CIRCUIT_LIKE,  # type: ignore
+    CIRCUIT_LIKE,
     """A `circuits.Circuit` or a value that can be trivially converted into it:
         a gate, an operation, and a list or tree of operations.
     """,
 )
 
 
-def _is_clifford_circuit(program: 'cirq.Circuit') -> bool:
+def _is_clifford_circuit(program: cirq.Circuit) -> bool:
     return all(
         clifford_simulator.CliffordSimulator.is_supported_operation(op)
         for op in program.all_operations()
@@ -46,14 +49,14 @@ def _is_clifford_circuit(program: 'cirq.Circuit') -> bool:
 
 
 def sample(
-    program: 'cirq.Circuit',
+    program: cirq.Circuit,
     *,
-    noise: 'cirq.NOISE_MODEL_LIKE' = None,
-    param_resolver: Optional[study.ParamResolver] = None,
+    noise: cirq.NOISE_MODEL_LIKE = None,
+    param_resolver: cirq.ParamResolver | None = None,
     repetitions: int = 1,
-    dtype: Type[np.number] = np.complex64,
-    seed: 'cirq.RANDOM_STATE_OR_SEED_LIKE' = None,
-) -> study.Result:
+    dtype: type[np.complexfloating] = np.complex64,
+    seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
+) -> cirq.Result:
     """Simulates sampling from the given circuit.
 
     Args:
@@ -65,6 +68,9 @@ def sample(
             `numpy.complex64` or `numpy.complex128`.
             Favors speed over precision by default, i.e. uses `numpy.complex64`.
         seed: The random seed to use for this simulator.
+
+    Returns:
+        A `cirq.Result` object containing the requested measurement samples.
     """
     noise_model = devices.NoiseModel.from_noise_model_like(noise)
 
@@ -86,8 +92,7 @@ def sample(
     ).run(program=program, param_resolver=param_resolver, repetitions=repetitions)
 
 
-def _to_circuit(program: 'cirq.CIRCUIT_LIKE') -> 'cirq.Circuit':
-    result = None
+def _to_circuit(program: cirq.CIRCUIT_LIKE) -> cirq.Circuit:
     if isinstance(program, circuits.Circuit):
         # No change needed.
         result = program
@@ -96,18 +101,19 @@ def _to_circuit(program: 'cirq.CIRCUIT_LIKE') -> 'cirq.Circuit':
     else:
         # It should be an OP_TREE.
         result = circuits.Circuit(program)
-    return cast('cirq.Circuit', result)
+    return result
 
 
 def final_state_vector(
-    program: 'cirq.CIRCUIT_LIKE',
+    program: cirq.CIRCUIT_LIKE,
     *,
-    initial_state: 'cirq.STATE_VECTOR_LIKE' = 0,
-    param_resolver: study.ParamResolverOrSimilarType = None,
-    qubit_order: ops.QubitOrderOrList = ops.QubitOrder.DEFAULT,
-    dtype: Type[np.number] = np.complex64,
-    seed: 'cirq.RANDOM_STATE_OR_SEED_LIKE' = None,
-) -> 'np.ndarray':
+    initial_state: cirq.STATE_VECTOR_LIKE = 0,
+    param_resolver: cirq.ParamResolverOrSimilarType = None,
+    qubit_order: cirq.QubitOrderOrList = ops.QubitOrder.DEFAULT,
+    ignore_terminal_measurements: bool = False,
+    dtype: type[np.complexfloating] = np.complex64,
+    seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
+) -> np.ndarray:
     """Returns the state vector resulting from acting operations on a state.
 
     By default the input state is the computational basis zero state, in which
@@ -116,15 +122,18 @@ def final_state_vector(
     Args:
         program: The circuit, gate, operation, or tree of operations
             to apply to the initial state in order to produce the result.
-        param_resolver: Parameters to run with the program.
-        qubit_order: Determines the canonical ordering of the qubits. This
-            is often used in specifying the initial state, i.e. the
-            ordering of the computational basis states.
         initial_state: If an int, the state is set to the computational
             basis state corresponding to this state. Otherwise  if this
             is a np.ndarray it is the full initial state. In this case it
             must be the correct size, be normalized (an L2 norm of 1), and
             be safely castable to an appropriate dtype for the simulator.
+        param_resolver: Parameters to run with the program.
+        qubit_order: Determines the canonical ordering of the qubits. This
+            is often used in specifying the initial state, i.e. the
+            ordering of the computational basis states.
+        ignore_terminal_measurements: When set, measurements at the end of
+            the circuit are ignored instead of causing the method to
+            fail.
         dtype: The `numpy.dtype` used by the simulation. Typically one of
             `numpy.complex64` or `numpy.complex128`.
         seed: The random seed to use for this simulator.
@@ -132,11 +141,20 @@ def final_state_vector(
     Returns:
         The state vector resulting from applying the given unitary operations to
         the desired initial state. Specifically, a numpy array containing the
-        the amplitudes in np.kron order, where the order of arguments to kron
+        amplitudes in np.kron order, where the order of arguments to kron
         is determined by the qubit order argument (which defaults to just
         sorting the qubits that are present into an ascending order).
+
+    Raises:
+        ValueError: If the program doesn't have a well defined final state because
+            it has non-unitary gates.
     """
     circuit_like = _to_circuit(program)
+    if not ignore_terminal_measurements:
+        if any(protocols.is_measurement(op) for op in circuit_like.all_operations()):
+            raise ValueError('Circuit contains a measurement.')
+    else:
+        circuit_like = measurement_transformers.drop_terminal_measurements(circuit_like)
 
     if not protocols.has_unitary(protocols.resolve_parameters(circuit_like, param_resolver)):
         raise ValueError(
@@ -144,7 +162,7 @@ def final_state_vector(
             "because it is not unitary. "
             "Maybe you wanted `cirq.final_density_matrix`?\n"
             "\n"
-            "Program: {!r}".format(circuit_like)
+            f"Program: {circuit_like!r}"
         )
 
     result = sparse_simulator.Simulator(dtype=dtype, seed=seed).simulate(
@@ -158,14 +176,14 @@ def final_state_vector(
 
 
 def sample_sweep(
-    program: 'cirq.Circuit',
-    params: study.Sweepable,
+    program: cirq.Circuit,
+    params: cirq.Sweepable,
     *,
-    noise: 'cirq.NOISE_MODEL_LIKE' = None,
+    noise: cirq.NOISE_MODEL_LIKE = None,
     repetitions: int = 1,
-    dtype: Type[np.number] = np.complex64,
-    seed: 'cirq.RANDOM_STATE_OR_SEED_LIKE' = None,
-) -> List[study.Result]:
+    dtype: type[np.complexfloating] = np.complex64,
+    seed: cirq.RANDOM_STATE_OR_SEED_LIKE = None,
+) -> Sequence[cirq.Result]:
     """Runs the supplied Circuit, mimicking quantum hardware.
 
     In contrast to run, this allows for sweeping over different parameter
@@ -188,7 +206,7 @@ def sample_sweep(
     """
     prng = value.parse_random_state(seed)
 
-    trial_results = []  # type: List[study.Result]
+    trial_results: list[study.Result] = []
     for param_resolver in study.to_resolvers(params):
         measurements = sample(
             program,
@@ -203,16 +221,16 @@ def sample_sweep(
 
 
 def final_density_matrix(
-    program: 'cirq.CIRCUIT_LIKE',
+    program: cirq.CIRCUIT_LIKE,
     *,
-    noise: 'cirq.NOISE_MODEL_LIKE' = None,
-    initial_state: 'cirq.STATE_VECTOR_LIKE' = 0,
-    param_resolver: study.ParamResolverOrSimilarType = None,
-    qubit_order: ops.QubitOrderOrList = ops.QubitOrder.DEFAULT,
-    dtype: Type[np.number] = np.complex64,
-    seed: Optional[Union[int, np.random.RandomState]] = None,
+    noise: cirq.NOISE_MODEL_LIKE = None,
+    initial_state: cirq.STATE_VECTOR_LIKE = 0,
+    param_resolver: cirq.ParamResolverOrSimilarType = None,
+    qubit_order: cirq.QubitOrderOrList = ops.QubitOrder.DEFAULT,
+    dtype: type[np.complexfloating] = np.complex64,
+    seed: int | np.random.RandomState | None = None,
     ignore_measurement_results: bool = True,
-) -> 'np.ndarray':
+) -> np.ndarray:
     """Returns the density matrix resulting from simulating the circuit.
 
     Note that, unlike `cirq.final_state_vector`, terminal measurements
@@ -256,7 +274,7 @@ def final_density_matrix(
     if not protocols.has_unitary(circuit_like):
         can_do_unitary_simulation = False
     if isinstance(circuit_like, circuits.Circuit):
-        if cast(circuits.Circuit, circuit_like).has_measurements():
+        if circuit_like.has_measurements():
             # Including terminal measurements.
             can_do_unitary_simulation = False
     if noise_model != devices.NO_NOISE:
@@ -274,12 +292,13 @@ def final_density_matrix(
     else:
         # noisy case: use DensityMatrixSimulator with dephasing
         density_result = density_matrix_simulator.DensityMatrixSimulator(
-            dtype=dtype,
-            noise=noise,
-            seed=seed,
-            ignore_measurement_results=(ignore_measurement_results),
+            dtype=dtype, noise=noise, seed=seed
         ).simulate(
-            program=circuit_like,
+            program=(
+                measurement_transformers.dephase_measurements(circuit_like)
+                if ignore_measurement_results
+                else circuit_like
+            ),
             initial_state=initial_state,
             qubit_order=qubit_order,
             param_resolver=param_resolver,

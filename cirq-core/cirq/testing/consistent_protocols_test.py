@@ -12,24 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import AbstractSet, Sequence, Union, List, Tuple
+from __future__ import annotations
 
-import pytest
+from types import NotImplementedType
+from typing import AbstractSet, Sequence
 
 import numpy as np
+import pytest
 import sympy
 
 import cirq
+import cirq.testing.consistent_controlled_gate_op_test as controlled_gate_op_test
 from cirq._compat import proper_repr
-from cirq.type_workarounds import NotImplementedType
 
 
-class GoodGate(cirq.SingleQubitGate):
+class GoodGate(cirq.testing.SingleQubitGate):
     def __init__(
-        self,
-        *,
-        phase_exponent: Union[float, sympy.Symbol],
-        exponent: Union[float, sympy.Symbol] = 1.0,
+        self, *, phase_exponent: float | sympy.Expr, exponent: float | sympy.Expr = 1.0
     ) -> None:
         self.phase_exponent = cirq.canonicalize_half_turns(phase_exponent)
         self.exponent = exponent
@@ -37,14 +36,14 @@ class GoodGate(cirq.SingleQubitGate):
     def _has_unitary_(self):
         return not cirq.is_parameterized(self)
 
-    def _unitary_(self) -> Union[np.ndarray, NotImplementedType]:
+    def _unitary_(self) -> np.ndarray | NotImplementedType:
         if cirq.is_parameterized(self):
             return NotImplemented
-        z = cirq.unitary(cirq.Z ** self.phase_exponent)
-        x = cirq.unitary(cirq.X ** self.exponent)
+        z = cirq.unitary(cirq.Z**self.phase_exponent)
+        x = cirq.unitary(cirq.X**self.exponent)
         return np.dot(np.dot(z, x), np.conj(z))
 
-    def _apply_unitary_(self, args: cirq.ApplyUnitaryArgs) -> Union[np.ndarray, NotImplementedType]:
+    def _apply_unitary_(self, args: cirq.ApplyUnitaryArgs) -> np.ndarray | NotImplementedType:
         if self.exponent != 1 or cirq.is_parameterized(self):
             return NotImplemented
 
@@ -64,10 +63,7 @@ class GoodGate(cirq.SingleQubitGate):
         q = qubits[0]
         z = cirq.Z(q) ** self.phase_exponent
         x = cirq.X(q) ** self.exponent
-        if cirq.is_parameterized(z):
-            # coverage: ignore
-            return NotImplemented
-        return z ** -1, x, z
+        return z**-1, x, z
 
     def _pauli_expansion_(self) -> cirq.LinearDict[str]:
         if self._is_parameterized_():
@@ -89,11 +85,10 @@ class GoodGate(cirq.SingleQubitGate):
             exponent=self.exponent, phase_exponent=self.phase_exponent + phase_turns * 2
         )
 
-    def __pow__(self, exponent: Union[float, sympy.Symbol]) -> 'GoodGate':
+    def __pow__(self, exponent: float | sympy.Expr) -> GoodGate:
         new_exponent = cirq.mul(self.exponent, exponent, NotImplemented)
         if new_exponent is NotImplemented:
-            # coverage: ignore
-            return NotImplemented
+            return NotImplemented  # pragma: no cover
         return GoodGate(phase_exponent=self.phase_exponent, exponent=new_exponent)
 
     def __repr__(self):
@@ -108,7 +103,7 @@ class GoodGate(cirq.SingleQubitGate):
     def _parameter_names_(self) -> AbstractSet[str]:
         return cirq.parameter_names(self.exponent) | cirq.parameter_names(self.phase_exponent)
 
-    def _resolve_parameters_(self, resolver, recursive) -> 'GoodGate':
+    def _resolve_parameters_(self, resolver, recursive) -> GoodGate:
         return GoodGate(
             phase_exponent=resolver.value_of(self.phase_exponent, recursive),
             exponent=resolver.value_of(self.exponent, recursive),
@@ -119,8 +114,7 @@ class GoodGate(cirq.SingleQubitGate):
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
-            # coverage: ignore
-            return NotImplemented
+            return NotImplemented  # pragma: no cover
         return self._identity_tuple() == other._identity_tuple()
 
 
@@ -135,10 +129,9 @@ class BadGateParameterNames(GoodGate):
 
 
 class BadGateApplyUnitaryToTensor(GoodGate):
-    def _apply_unitary_(self, args: cirq.ApplyUnitaryArgs) -> Union[np.ndarray, NotImplementedType]:
+    def _apply_unitary_(self, args: cirq.ApplyUnitaryArgs) -> np.ndarray | NotImplementedType:
         if self.exponent != 1 or cirq.is_parameterized(self):
-            # coverage: ignore
-            return NotImplemented
+            return NotImplemented  # pragma: no cover
 
         zero = cirq.slice_for_qubits_equal_to(args.axes, 0)
         one = cirq.slice_for_qubits_equal_to(args.axes, 1)
@@ -159,9 +152,8 @@ class BadGateDecompose(GoodGate):
         z = cirq.Z(q) ** self.phase_exponent
         x = cirq.X(q) ** (2 * self.exponent)
         if cirq.is_parameterized(z):
-            # coverage: ignore
-            return NotImplemented
-        return z ** -1, x, z
+            return NotImplemented  # pragma: no cover
+        return z**-1, x, z
 
 
 class BadGatePauliExpansion(GoodGate):
@@ -181,21 +173,19 @@ class BadGateRepr(GoodGate):
     def __repr__(self):
         args = [f'phase_exponent={2 * self.phase_exponent!r}']
         if self.exponent != 1:
-            # coverage: ignore
-            args.append(f'exponent={proper_repr(self.exponent)}')
+            args.append(f'exponent={proper_repr(self.exponent)}')  # pragma: no cover
         return f"BadGateRepr({', '.join(args)})"
 
 
-class GoodEigenGate(cirq.EigenGate, cirq.SingleQubitGate):
-    def _eigen_components(self) -> List[Tuple[float, np.ndarray]]:
-        return [
-            (0, np.diag([1, 0])),
-            (1, np.diag([0, 1])),
-        ]
+class GoodEigenGate(cirq.EigenGate, cirq.testing.SingleQubitGate):
+    def _eigen_components(self) -> list[tuple[float, np.ndarray]]:
+        return [(0, np.diag([1, 0])), (1, np.diag([0, 1]))]
 
     def __repr__(self):
-        return 'GoodEigenGate(exponent={}, global_shift={!r})'.format(
-            proper_repr(self._exponent), self._global_shift
+        return (
+            'GoodEigenGate('
+            f'exponent={proper_repr(self._exponent)}, '
+            f'global_shift={self._global_shift!r})'
         )
 
 
@@ -204,12 +194,14 @@ class BadEigenGate(GoodEigenGate):
         return [0, 0]
 
     def __repr__(self):
-        return 'BadEigenGate(exponent={}, global_shift={!r})'.format(
-            proper_repr(self._exponent), self._global_shift
+        return (
+            'BadEigenGate('
+            f'exponent={proper_repr(self._exponent)}, '
+            f'global_shift={self._global_shift!r})'
         )
 
 
-def test_assert_implements_consistent_protocols():
+def test_assert_implements_consistent_protocols() -> None:
     cirq.testing.assert_implements_consistent_protocols(
         GoodGate(phase_exponent=0.0), global_vals={'GoodGate': GoodGate}
     )
@@ -253,19 +245,26 @@ def test_assert_implements_consistent_protocols():
             BadGateRepr(phase_exponent=0.25), global_vals={'BadGateRepr': BadGateRepr}
         )
 
+    with pytest.raises(AssertionError):
+        cirq.testing.assert_implements_consistent_protocols(controlled_gate_op_test.BadGate())
 
-def test_assert_eigengate_implements_consistent_protocols():
+
+def test_assert_eigengate_implements_consistent_protocols() -> None:
     cirq.testing.assert_eigengate_implements_consistent_protocols(
-        GoodEigenGate, global_vals={'GoodEigenGate': GoodEigenGate}
+        GoodEigenGate,
+        global_vals={'GoodEigenGate': GoodEigenGate},
+        ignore_decompose_to_default_gateset=True,
     )
 
     with pytest.raises(AssertionError):
         cirq.testing.assert_eigengate_implements_consistent_protocols(
-            BadEigenGate, global_vals={'BadEigenGate': BadEigenGate}
+            BadEigenGate,
+            global_vals={'BadEigenGate': BadEigenGate},
+            ignore_decompose_to_default_gateset=True,
         )
 
 
-def test_assert_commutes_magic_method_consistent_with_unitaries():
+def test_assert_commutes_magic_method_consistent_with_unitaries() -> None:
     gate_op = cirq.CNOT(*cirq.LineQubit.range(2))
     with pytest.raises(TypeError):
         cirq.testing.assert_commutes_magic_method_consistent_with_unitaries(gate_op)

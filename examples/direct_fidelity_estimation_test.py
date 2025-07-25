@@ -1,5 +1,10 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
+
+from __future__ import annotations
+
 import numpy as np
 import pytest
+
 import cirq
 import examples.direct_fidelity_estimation as dfe
 
@@ -90,14 +95,9 @@ def test_same_pauli_traces_clifford():
     n_qubits = 4
 
     qubits = cirq.LineQubit.range(n_qubits)
-    circuit_clifford = cirq.Circuit(
-        cirq.X(qubits[3]),
-    )
+    circuit_clifford = cirq.Circuit(cirq.X(qubits[3]))
 
-    circuit_general = cirq.Circuit(
-        cirq.CCX(qubits[0], qubits[1], qubits[2]),
-        circuit_clifford,
-    )
+    circuit_general = cirq.Circuit(cirq.CCX(qubits[0], qubits[1], qubits[2]), circuit_clifford)
 
     def _run_dfe(circuit):
         class NoiseOnLastQubitOnly(cirq.NoiseModel):
@@ -107,7 +107,7 @@ def test_same_pauli_traces_clifford():
             def noisy_moment(self, moment, system_qubits):
                 return [
                     moment,
-                    cirq.ops.Moment(
+                    cirq.Moment(
                         [
                             self.qubit_noise_gate(q).with_tags(cirq.ops.VirtualTag())
                             for q in system_qubits[-1:]
@@ -115,7 +115,6 @@ def test_same_pauli_traces_clifford():
                     ),
                 ]
 
-        np.random.seed(0)
         noise = NoiseOnLastQubitOnly()
         noisy_simulator = cirq.DensityMatrixSimulator(noise=noise)
 
@@ -131,7 +130,7 @@ def test_same_pauli_traces_clifford():
     assert clifford_is_clifford
     assert not general_is_clifford
 
-    assert len(pauli_traces_clifford) == 2 ** n_qubits
+    assert len(pauli_traces_clifford) == 2**n_qubits
     for pauli_trace_clifford in pauli_traces_clifford:
         pauli_trace_general = [x for x in pauli_traces_general if x.P_i == pauli_trace_clifford.P_i]
         assert len(pauli_trace_general) == 1

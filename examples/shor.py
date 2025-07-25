@@ -1,3 +1,4 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
 """Demonstrates Shor's algorithm.
 
 Shor's algorithm [1] is a quantum algorithm for integer factorization. Given
@@ -46,12 +47,13 @@ Estimation algorithm is retried.
 [1]: https://arxiv.org/abs/quant-ph/9508027
 """
 
+from __future__ import annotations
+
 import argparse
 import fractions
 import math
 import random
-
-from typing import Callable, List, Optional, Sequence, Union
+from typing import Callable, Sequence
 
 import sympy
 
@@ -74,7 +76,7 @@ parser.add_argument(
 )
 
 
-def naive_order_finder(x: int, n: int) -> Optional[int]:
+def naive_order_finder(x: int, n: int) -> int | None:
     """Computes smallest positive r such that x**r mod n == 1.
 
     Args:
@@ -88,8 +90,8 @@ def naive_order_finder(x: int, n: int) -> Optional[int]:
         Always succeeds (and hence never returns None).
 
     Raises:
-        ValueError when x is 1 or not an element of the multiplicative
-        group of integers modulo n.
+        ValueError: When x is 1 or not an element of the multiplicative
+            group of integers modulo n.
     """
     if x < 2 or n <= x or math.gcd(x, n) > 1:
         raise ValueError(f'Invalid x={x} for modulus n={n}.')
@@ -100,7 +102,7 @@ def naive_order_finder(x: int, n: int) -> Optional[int]:
     return r
 
 
-class ModularExp(cirq.ArithmeticOperation):
+class ModularExp(cirq.ArithmeticGate):
     """Quantum modular exponentiation.
 
     This class represents the unitary which multiplies base raised to exponent
@@ -128,11 +130,7 @@ class ModularExp(cirq.ArithmeticOperation):
     """
 
     def __init__(
-        self,
-        target: Sequence[cirq.Qid],
-        exponent: Union[int, Sequence[cirq.Qid]],
-        base: int,
-        modulus: int,
+        self, target: Sequence[int], exponent: int | Sequence[int], base: int, modulus: int
     ) -> None:
         if len(target) < modulus.bit_length():
             raise ValueError(
@@ -143,13 +141,10 @@ class ModularExp(cirq.ArithmeticOperation):
         self.base = base
         self.modulus = modulus
 
-    def registers(self) -> Sequence[Union[int, Sequence[cirq.Qid]]]:
+    def registers(self) -> Sequence[int | Sequence[int]]:
         return self.target, self.exponent, self.base, self.modulus
 
-    def with_registers(
-        self,
-        *new_registers: Union[int, Sequence['cirq.Qid']],
-    ) -> 'ModularExp':
+    def with_registers(self, *new_registers: int | Sequence[int]) -> ModularExp:
         if len(new_registers) != 4:
             raise ValueError(
                 f'Expected 4 registers (target, exponent, base, '
@@ -169,29 +164,16 @@ class ModularExp(cirq.ArithmeticOperation):
         target, exponent, base, modulus = register_values
         if target >= modulus:
             return target
-        return (target * base ** exponent) % modulus
+        return (target * base**exponent) % modulus
 
-    def _circuit_diagram_info_(
-        self,
-        args: cirq.CircuitDiagramInfoArgs,
-    ) -> cirq.CircuitDiagramInfo:
+    def _circuit_diagram_info_(self, args: cirq.CircuitDiagramInfoArgs) -> cirq.CircuitDiagramInfo:
         assert args.known_qubits is not None
-        wire_symbols: List[str] = []
-        t, e = 0, 0
-        for qubit in args.known_qubits:
-            if qubit in self.target:
-                if t == 0:
-                    if isinstance(self.exponent, Sequence):
-                        e_str = 'e'
-                    else:
-                        e_str = str(self.exponent)
-                    wire_symbols.append(f'ModularExp(t*{self.base}**{e_str} % {self.modulus})')
-                else:
-                    wire_symbols.append('t' + str(t))
-                t += 1
-            if isinstance(self.exponent, Sequence) and qubit in self.exponent:
-                wire_symbols.append('e' + str(e))
-                e += 1
+        wire_symbols = [f't{i}' for i in range(len(self.target))]
+        e_str = str(self.exponent)
+        if isinstance(self.exponent, Sequence):
+            e_str = 'e'
+            wire_symbols += [f'e{i}' for i in range(len(self.exponent))]
+        wire_symbols[0] = f'ModularExp(t*{self.base}**{e_str} % {self.modulus})'
         return cirq.CircuitDiagramInfo(wire_symbols=tuple(wire_symbols))
 
 
@@ -229,7 +211,7 @@ def make_order_finding_circuit(x: int, n: int) -> cirq.Circuit:
     return cirq.Circuit(
         cirq.X(target[L - 1]),
         cirq.H.on_each(*exponent),
-        ModularExp(target, exponent, x, n),
+        ModularExp([2] * len(target), [2] * len(exponent), x, n).on(*target + exponent),
         cirq.qft(*exponent, inverse=True),
         cirq.measure(*exponent, key='exponent'),
     )
@@ -255,10 +237,10 @@ def read_eigenphase(result: cirq.Result) -> float:
     """
     exponent_as_integer = result.data['exponent'][0]
     exponent_num_bits = result.measurements['exponent'].shape[1]
-    return float(exponent_as_integer / 2 ** exponent_num_bits)
+    return float(exponent_as_integer / 2**exponent_num_bits)
 
 
-def quantum_order_finder(x: int, n: int) -> Optional[int]:
+def quantum_order_finder(x: int, n: int) -> int | None:
     """Computes smallest positive r such that x**r mod n == 1.
 
     Args:
@@ -273,8 +255,8 @@ def quantum_order_finder(x: int, n: int) -> Optional[int]:
         Phase Estimation is inaccurate, zero or a reducible fraction.
 
     Raises:
-        ValueError when x is 1 or not an element of the multiplicative
-        group of integers modulo n.
+        ValueError: When x is 1 or not an element of the multiplicative
+            group of integers modulo n.
     """
     if x < 2 or n <= x or math.gcd(x, n) > 1:
         raise ValueError(f'Invalid x={x} for modulus n={n}.')
@@ -284,29 +266,29 @@ def quantum_order_finder(x: int, n: int) -> Optional[int]:
     eigenphase = read_eigenphase(result)
     f = fractions.Fraction.from_float(eigenphase).limit_denominator(n)
     if f.numerator == 0:
-        return None  # coverage: ignore
+        return None  # pragma: no cover
     r = f.denominator
-    if x ** r % n != 1:
-        return None  # coverage: ignore
+    if x**r % n != 1:
+        return None  # pragma: no cover
     return r
 
 
-def find_factor_of_prime_power(n: int) -> Optional[int]:
+def find_factor_of_prime_power(n: int) -> int | None:
     """Returns non-trivial factor of n if n is a prime power, else None."""
     for k in range(2, math.floor(math.log2(n)) + 1):
         c = math.pow(n, 1 / k)
         c1 = math.floor(c)
-        if c1 ** k == n:
+        if c1**k == n:
             return c1
         c2 = math.ceil(c)
-        if c2 ** k == n:
+        if c2**k == n:
             return c2
     return None
 
 
 def find_factor(
-    n: int, order_finder: Callable[[int, int], Optional[int]], max_attempts: int = 30
-) -> Optional[int]:
+    n: int, order_finder: Callable[[int, int], int | None], max_attempts: int = 30
+) -> int | None:
     """Returns a non-trivial factor of composite integer n.
 
     Args:
@@ -331,24 +313,21 @@ def find_factor(
         x = random.randint(2, n - 1)
         c = math.gcd(x, n)
         if 1 < c < n:
-            return c  # coverage: ignore
+            return c  # pragma: no cover
         r = order_finder(x, n)
         if r is None:
-            continue  # coverage: ignore
+            continue  # pragma: no cover
         if r % 2 != 0:
-            continue  # coverage: ignore
+            continue  # pragma: no cover
         y = x ** (r // 2) % n
         assert 1 < y < n
         c = math.gcd(y - 1, n)
         if 1 < c < n:
             return c
-    return None  # coverage: ignore
+    return None  # pragma: no cover
 
 
-def main(
-    n: int,
-    order_finder: Callable[[int, int], Optional[int]] = naive_order_finder,
-):
+def main(n: int, order_finder: Callable[[int, int], int | None] = naive_order_finder):
     if n < 2:
         raise ValueError(f'Invalid input {n}, expected positive integer greater than one.')
 
@@ -363,11 +342,7 @@ def main(
         assert n % d == 0
 
 
-if __name__ == '__main__':
-    # coverage: ignore
-    ORDER_FINDERS = {
-        'naive': naive_order_finder,
-        'quantum': quantum_order_finder,
-    }
+if __name__ == '__main__':  # pragma: no cover
+    ORDER_FINDERS = {'naive': naive_order_finder, 'quantum': quantum_order_finder}
     args = parser.parse_args()
     main(n=args.n, order_finder=ORDER_FINDERS[args.order_finder])

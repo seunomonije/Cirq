@@ -11,9 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List
-from numpy import sqrt
+
+from __future__ import annotations
+
 import numpy as np
+from numpy import sqrt
 
 import cirq
 
@@ -48,14 +50,14 @@ class ThreeDQubit(cirq.ops.Qid):
         return sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2 + (self.z - other.z) ** 2)
 
     @staticmethod
-    def cube(diameter: int, x0: float = 0, y0: float = 0, z0: float = 0) -> List['ThreeDQubit']:
+    def cube(diameter: int, x0: float = 0, y0: float = 0, z0: float = 0) -> list[ThreeDQubit]:
         """Returns a cube of ThreeDQubits.
 
         Args:
-            diameter: Length of a side of the square
-            x0: x-coordinate of the first qubit
+            diameter: Length of a side of the square.
+            x0: x-coordinate of the first qubit.
             y0: y-coordinate of the first qubit
-            z0: z-coordinate of the first qubit
+            z0: z-coordinate of the first qubit.
 
         Returns:
             A list of ThreeDQubits filling in a square grid
@@ -65,15 +67,16 @@ class ThreeDQubit(cirq.ops.Qid):
     @staticmethod
     def parallelep(
         rows: int, cols: int, lays: int, x0: float = 0, y0: float = 0, z0: float = 0
-    ) -> List['ThreeDQubit']:
+    ) -> list[ThreeDQubit]:
         """Returns a parallelepiped of ThreeDQubits.
 
         Args:
-            rows: Number of rows in the rectangle
-            cols: Number of columns in the rectangle
-            x0: x-coordinate of the first qubit
-            y0: y-coordinate of the first qubit
-            z0: z-coordinate of the first qubit
+            rows: Number of rows in the parallelepiped.
+            cols: Number of columns in the parallelepiped.
+            lays: Number of layers in the parallelepiped.
+            x0: x-coordinate of the first qubit.
+            y0: y-coordinate of the first qubit.
+            z0: z-coordinate of the first qubit.
 
         Returns:
             A list of ThreeDQubits filling in a 3d grid
@@ -102,13 +105,13 @@ class TwoDQubit(ThreeDQubit):
         super().__init__(x, y, z=0)
 
     @staticmethod
-    def square(diameter: int, x0: float = 0, y0: float = 0) -> List['TwoDQubit']:
+    def square(diameter: int, x0: float = 0, y0: float = 0) -> list[TwoDQubit]:
         """Returns a square of TwoDQubit.
 
         Args:
-            diameter: Length of a side of the square
-            x0: x-coordinate of the first qubit
-            y0: y-coordinate of the first qubit
+            diameter: Length of a side of the square.
+            x0: x-coordinate of the first qubit.
+            y0: y-coordinate of the first qubit.
 
         Returns:
             A list of TwoDQubits filling in a square grid
@@ -116,14 +119,14 @@ class TwoDQubit(ThreeDQubit):
         return TwoDQubit.rect(diameter, diameter, x0=x0, y0=y0)
 
     @staticmethod
-    def rect(rows: int, cols: int, x0: float = 0, y0: float = 0) -> List['TwoDQubit']:
+    def rect(rows: int, cols: int, x0: float = 0, y0: float = 0) -> list[TwoDQubit]:
         """Returns a rectangle of TwoDQubit.
 
         Args:
-            rows: Number of rows in the rectangle
-            cols: Number of columns in the rectangle
-            x0: x-coordinate of the first qubit
-            y0: y-coordinate of the first qubit
+            rows: Number of rows in the rectangle.
+            cols: Number of columns in the rectangle.
+            x0: x-coordinate of the first qubit.
+            y0: y-coordinate of the first qubit.
 
         Returns:
             A list of TwoDQubits filling in a rectangular grid
@@ -135,9 +138,9 @@ class TwoDQubit(ThreeDQubit):
         """Returns a triangular lattice of TwoDQubits.
 
         Args:
-            l: Number of qubits along one direction
-            x0: x-coordinate of the first qubit
-            y0: y-coordinate of the first qubit
+            l: Number of qubits along one direction.
+            x0: x-coordinate of the first qubit.
+            y0: y-coordinate of the first qubit.
 
         Returns:
             A list of TwoDQubits filling in a triangular lattice.

@@ -17,32 +17,34 @@
 In order to publish to our site, devsite runs two jobs for us: stable and nightly.
 The stable one downloads the latest cirq release from pypi and uses that to generate the reference
 API docs.
-The nightly one downloads the latest cirq pre-release (pip install cirq --pre) and uses that to
-generate the "nightly diff".
+The nightly one downloads the latest cirq pre-release (pip install --upgrade cirq~=1.0.dev) and
+uses that to generate the "nightly diff".
 
 This script needs to cater for both of these cases.
 """
+
+from __future__ import annotations
 
 import os
 import types
 
 import networkx
-from absl import app
-from absl import flags
-from tensorflow_docs.api_generator import doc_controls
-from tensorflow_docs.api_generator import generate_lib
-from tensorflow_docs.api_generator import public_api
+from absl import app, flags
+from tensorflow_docs.api_generator import doc_controls, generate_lib, public_api
 
 import cirq
+import cirq_aqt
 import cirq_google
-
+import cirq_ionq
+import cirq_pasqal
+import cirq_web
 from cirq import _doc
 
 flags.DEFINE_string("output_dir", "docs/api_docs", "Where to output the docs")
 
 flags.DEFINE_string(
     "code_url_prefix",
-    "https://github.com/quantumlib/Cirq/blob/master",
+    "https://github.com/quantumlib/Cirq/blob/main",
     "The url prefix for links to code.",
 )
 
@@ -70,12 +72,21 @@ def filter_unwanted_inherited_methods(path, parent, children):
     return filtered_children
 
 
+def filter_type_checking(path, parent, children):
+    filtered_children = []
+    for name, obj in children:
+        if name != 'TYPE_CHECKING':
+            filtered_children.append((name, obj))
+    return filtered_children
+
+
 def main(unused_argv):
     generate_cirq()
     generate_cirq_google()
     generate_cirq_aqt()
     generate_cirq_ionq()
-    generate_cirq_rigetti()
+    generate_cirq_pasqal()
+    generate_cirq_web()
 
 
 def generate_cirq():
@@ -86,8 +97,35 @@ def generate_cirq():
         code_url_prefix=FLAGS.code_url_prefix + "/cirq-core/cirq",
         search_hints=FLAGS.search_hints,
         site_path=FLAGS.site_path,
-        callbacks=[public_api.local_definitions_filter, filter_unwanted_inherited_methods],
+        callbacks=[
+            public_api.local_definitions_filter,
+            filter_unwanted_inherited_methods,
+            filter_type_checking,
+        ],
         extra_docs=_doc.RECORDED_CONST_DOCS,
+        # Submodules that we do not wish to document.
+        private_map={
+            'cirq': [
+                'circuits',
+                'devices',
+                'experiments',
+                'interop',
+                'linalg',
+                'ops',
+                'optimizers',
+                'transformers',
+                'qis',
+                'sim',
+                'study',
+                'value',
+                'protocols',
+                'ion',
+                'neutral_atoms',
+                'vis',
+                'work',
+                'json_resolver_cache',
+            ]
+        },
     )
     doc_controls.decorate_all_class_attributes(
         doc_controls.do_not_doc_inheritable, networkx.DiGraph, skip=[]
@@ -96,14 +134,6 @@ def generate_cirq():
 
 
 def generate_cirq_aqt():
-    # This try-catch can go after v0.12 is released
-    try:
-        # should be present in the nightly (pre-release) build
-        import cirq_aqt
-    except ImportError:
-        # as cirq.aqt is under cirq, it should be generated correctly
-        return
-
     doc_generator = generate_lib.DocGenerator(
         root_title="Cirq-aqt",
         py_modules=[("cirq_aqt", cirq_aqt)],
@@ -111,7 +141,11 @@ def generate_cirq_aqt():
         code_url_prefix=FLAGS.code_url_prefix + "/cirq-aqt/cirq_aqt",
         search_hints=FLAGS.search_hints,
         site_path=FLAGS.site_path,
-        callbacks=[public_api.local_definitions_filter, filter_unwanted_inherited_methods],
+        callbacks=[
+            public_api.local_definitions_filter,
+            filter_unwanted_inherited_methods,
+            filter_type_checking,
+        ],
         extra_docs=_doc.RECORDED_CONST_DOCS,
     )
     doc_controls.decorate_all_class_attributes(
@@ -122,14 +156,6 @@ def generate_cirq_aqt():
 
 
 def generate_cirq_ionq():
-    # This try-catch can go after v0.12 is released
-    try:
-        # should be present in the nightly (pre-release) build
-        import cirq_ionq
-    except ImportError:
-        # as cirq.ionq is under cirq, it should be generated correctly
-        return
-
     doc_generator = generate_lib.DocGenerator(
         root_title="Cirq_ionq",
         py_modules=[("cirq_ionq", cirq_ionq)],
@@ -137,7 +163,11 @@ def generate_cirq_ionq():
         code_url_prefix=FLAGS.code_url_prefix + "/cirq-ionq/cirq_ionq",
         search_hints=FLAGS.search_hints,
         site_path=FLAGS.site_path,
-        callbacks=[public_api.local_definitions_filter, filter_unwanted_inherited_methods],
+        callbacks=[
+            public_api.local_definitions_filter,
+            filter_unwanted_inherited_methods,
+            filter_type_checking,
+        ],
         extra_docs=_doc.RECORDED_CONST_DOCS,
     )
     doc_controls.decorate_all_class_attributes(
@@ -147,23 +177,19 @@ def generate_cirq_ionq():
     doc_generator.build(output_dir=FLAGS.output_dir)
 
 
-def generate_cirq_rigetti():
-    # This try-catch can go after v0.12 is released
-    try:
-        # should be present in the nightly (pre-release) build
-        import cirq_rigetti
-    except ImportError:
-        # as cirq-rigetti is not released yet, this should be a no-op
-        return
-
+def generate_cirq_pasqal():
     doc_generator = generate_lib.DocGenerator(
-        root_title="Cirq_rigetti",
-        py_modules=[("cirq_rigetti", cirq_rigetti)],
-        base_dir=os.path.dirname(cirq_rigetti.__file__),
-        code_url_prefix=FLAGS.code_url_prefix + "/cirq-rigetti/cirq_rigetti",
+        root_title="Cirq-pasqal",
+        py_modules=[("cirq_pasqal", cirq_pasqal)],
+        base_dir=os.path.dirname(cirq_pasqal.__file__),
+        code_url_prefix=FLAGS.code_url_prefix + "/cirq-pasqal/cirq_pasqal",
         search_hints=FLAGS.search_hints,
         site_path=FLAGS.site_path,
-        callbacks=[public_api.local_definitions_filter, filter_unwanted_inherited_methods],
+        callbacks=[
+            public_api.local_definitions_filter,
+            filter_unwanted_inherited_methods,
+            filter_type_checking,
+        ],
         extra_docs=_doc.RECORDED_CONST_DOCS,
     )
     doc_controls.decorate_all_class_attributes(
@@ -181,15 +207,41 @@ def generate_cirq_google():
         code_url_prefix=FLAGS.code_url_prefix + "/cirq-google/cirq_google",
         search_hints=FLAGS.search_hints,
         site_path=FLAGS.site_path,
-        callbacks=[public_api.local_definitions_filter, filter_unwanted_inherited_methods],
+        callbacks=[
+            public_api.local_definitions_filter,
+            filter_unwanted_inherited_methods,
+            filter_type_checking,
+        ],
         private_map={
             # Opt to not build docs for these paths for now since they error.
-            "cirq_google.engine.client.quantum.QuantumEngineServiceClient": ["enums"],
-            "cirq_google.engine.client.quantum_v1alpha1.QuantumEngineServiceClient": ["enums"],
+            "cirq_google.cloud.quantum.QuantumEngineServiceClient": ["enums"],
+            "cirq_google.cloud.quantum_v1alpha1.QuantumEngineServiceClient": ["enums"],
             "cirq_google.api": ["v1"],
         },
         extra_docs=_doc.RECORDED_CONST_DOCS,
     )
+    doc_generator.build(output_dir=FLAGS.output_dir)
+
+
+def generate_cirq_web():
+    doc_generator = generate_lib.DocGenerator(
+        root_title="Cirq_web",
+        py_modules=[("cirq_web", cirq_web)],
+        base_dir=os.path.dirname(cirq_web.__file__),
+        code_url_prefix=FLAGS.code_url_prefix + "/cirq-web/cirq_web",
+        search_hints=FLAGS.search_hints,
+        site_path=FLAGS.site_path,
+        callbacks=[
+            public_api.local_definitions_filter,
+            filter_unwanted_inherited_methods,
+            filter_type_checking,
+        ],
+        extra_docs=_doc.RECORDED_CONST_DOCS,
+    )
+    doc_controls.decorate_all_class_attributes(
+        doc_controls.do_not_doc_inheritable, networkx.DiGraph, skip=[]
+    )
+
     doc_generator.build(output_dir=FLAGS.output_dir)
 
 

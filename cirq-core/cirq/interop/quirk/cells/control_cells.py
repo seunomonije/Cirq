@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Iterable, Iterator, List, Optional, TYPE_CHECKING, Union
+from __future__ import annotations
+
+from typing import Any, Iterable, Iterator, TYPE_CHECKING
 
 from cirq import ops, value
 from cirq.interop.quirk.cells.cell import Cell, CellMaker
@@ -25,7 +27,7 @@ if TYPE_CHECKING:
 class ControlCell(Cell):
     """A modifier that adds controls to other cells in the column."""
 
-    def __init__(self, qubit: 'cirq.Qid', basis_change: Iterable['cirq.Operation']):
+    def __init__(self, qubit: cirq.Qid, basis_change: Iterable[cirq.Operation]):
         self.qubit = qubit
         self._basis_change = tuple(basis_change)
 
@@ -42,7 +44,7 @@ class ControlCell(Cell):
     def gate_count(self) -> int:
         return 0
 
-    def with_line_qubits_mapped_to(self, qubits: List['cirq.Qid']) -> 'Cell':
+    def with_line_qubits_mapped_to(self, qubits: list[cirq.Qid]) -> Cell:
         return ControlCell(
             qubit=Cell._replace_qubit(self.qubit, qubits),
             basis_change=tuple(
@@ -51,13 +53,13 @@ class ControlCell(Cell):
             ),
         )
 
-    def modify_column(self, column: List[Optional['Cell']]):
+    def modify_column(self, column: list[Cell | None]):
         for i in range(len(column)):
             gate = column[i]
             if gate is not None:
                 column[i] = gate.controlled_by(self.qubit)
 
-    def basis_change(self) -> 'cirq.OP_TREE':
+    def basis_change(self) -> cirq.OP_TREE:
         return self._basis_change
 
 
@@ -69,7 +71,7 @@ class ParityControlCell(Cell):
     of them are individually satisfied.
     """
 
-    def __init__(self, qubits: Iterable['cirq.Qid'], basis_change: Iterable['cirq.Operation']):
+    def __init__(self, qubits: Iterable[cirq.Qid], basis_change: Iterable[cirq.Operation]):
         self.qubits = list(qubits)
         self._basis_change = list(basis_change)
 
@@ -86,7 +88,7 @@ class ParityControlCell(Cell):
     def gate_count(self) -> int:
         return 0
 
-    def with_line_qubits_mapped_to(self, qubits: List['cirq.Qid']) -> 'Cell':
+    def with_line_qubits_mapped_to(self, qubits: list[cirq.Qid]) -> Cell:
         return ParityControlCell(
             qubits=Cell._replace_qubits(self.qubits, qubits),
             basis_change=tuple(
@@ -95,7 +97,7 @@ class ParityControlCell(Cell):
             ),
         )
 
-    def modify_column(self, column: List[Optional['Cell']]):
+    def modify_column(self, column: list[Cell | None]):
         for i in range(len(column)):
             gate = column[i]
             if gate is self:
@@ -109,7 +111,7 @@ class ParityControlCell(Cell):
             elif gate is not None:
                 column[i] = gate.controlled_by(self.qubits[0])
 
-    def basis_change(self) -> 'cirq.OP_TREE':
+    def basis_change(self) -> Iterator[cirq.OP_TREE]:
         yield from self._basis_change
 
         # Temporarily move the ZZZ..Z parity observable onto a single qubit.
@@ -121,18 +123,18 @@ def generate_all_control_cell_makers() -> Iterator[CellMaker]:
     # Controls.
     yield _reg_control("•", basis_change=None)
     yield _reg_control("◦", basis_change=ops.X)
-    yield _reg_control("⊕", basis_change=ops.Y ** 0.5)
-    yield _reg_control("⊖", basis_change=ops.Y ** -0.5)
-    yield _reg_control("⊗", basis_change=ops.X ** -0.5)
-    yield _reg_control("(/)", basis_change=ops.X ** 0.5)
+    yield _reg_control("⊕", basis_change=ops.Y**0.5)
+    yield _reg_control("⊖", basis_change=ops.Y**-0.5)
+    yield _reg_control("⊗", basis_change=ops.X**-0.5)
+    yield _reg_control("(/)", basis_change=ops.X**0.5)
 
     # Parity controls.
-    yield _reg_parity_control("xpar", basis_change=ops.Y ** 0.5)
-    yield _reg_parity_control("ypar", basis_change=ops.X ** -0.5)
+    yield _reg_parity_control("xpar", basis_change=ops.Y**0.5)
+    yield _reg_parity_control("ypar", basis_change=ops.X**-0.5)
     yield _reg_parity_control("zpar", basis_change=None)
 
 
-def _reg_control(identifier: str, *, basis_change: Optional['cirq.SingleQubitGate']) -> CellMaker:
+def _reg_control(identifier: str, *, basis_change: cirq.Gate | None) -> CellMaker:
     return CellMaker(
         identifier=identifier,
         size=1,
@@ -142,9 +144,7 @@ def _reg_control(identifier: str, *, basis_change: Optional['cirq.SingleQubitGat
     )
 
 
-def _reg_parity_control(
-    identifier: str, *, basis_change: Optional['cirq.SingleQubitGate'] = None
-) -> CellMaker:
+def _reg_parity_control(identifier: str, *, basis_change: cirq.Gate | None = None) -> CellMaker:
     return CellMaker(
         identifier=identifier,
         size=1,
@@ -155,8 +155,8 @@ def _reg_parity_control(
 
 
 def _basis_else_empty(
-    basis_change: Optional['cirq.SingleQubitGate'], qureg: Union['cirq.Qid', Iterable['cirq.Qid']]
-) -> Iterable['cirq.Operation']:
+    basis_change: cirq.Gate | None, qureg: cirq.Qid | Iterable[cirq.Qid]
+) -> Iterable[cirq.Operation]:
     if basis_change is None:
         return ()
     return basis_change.on_each(qureg)

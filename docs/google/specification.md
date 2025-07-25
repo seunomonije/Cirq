@@ -2,7 +2,7 @@
 
 The device specification proto defines basic layout of a device as well as the
 gate set and serialized ids that can be used.  This specification can be used
-to find out specific characteristics of though.
+to find out specific characteristics of the device.
 
 Though several standard [Google devices](devices.md) are defined for your
 convenience, specific devices may have specialized layouts particular to that
@@ -10,7 +10,7 @@ processor.  For instance, there may be one or more qubit "drop-outs" that are
 non-functional for whatever reason.   There could also be new or experimental
 features enabled on some devices but not on others.
 
-This specification is defined in the Device proto within `cirq.google.api.v2`.
+This specification is defined in the Device proto within `cirq_google.api.v2`.
 
 ## Gate Set Specifications
 
@@ -36,11 +36,11 @@ specification.  This time is stored as an integer number of picoseconds.
 Example code to print out the gate durations for every gate supported by the
 device is shown below:
 
-```
+```python
 import cirq
 
 # Create an Engine object to use.
-engine = cirq.google.Engine(project_id='your_project_id')
+engine = cirq_google.Engine(project_id='your_project_id')
 
 # Replace the processor id to get the device specification with that id.
 spec = engine.get_processor('processor_id').get_device_specification()
@@ -90,36 +90,31 @@ are not captured by the hard requirements above.
 
 For instance, "Do not apply two CZ gates in a row."
 
-## Serializable Devices
+## Conversion to cirq.Device
 
-The `cirq.google.SerializableDevice` class allows someone to take this
+The `cirq_google.GridDevice` class allows someone to take this
 device specification and turn it into a `cirq.Device` that can be used to
 verify a circuit.
-
-The `cirq.google.SerializableDevice` combines a `DeviceSpecification` protocol
-buffer (defining the device) with a `SerializableGateSet` (that defines the
-translation from serialized id to cirq) to produce a `cirq.Device` that can
-be used to validate a circuit.
 
 The following example illustrates retrieving the device specification live
 from the engine and then using it to validate a circuit.
 
-```
+```python
 import cirq
-import cirq.google as cg
+import cirq_google as cg
 
 # Create an Engine object to use.
 engine = cg.Engine(project_id='your_project_id',
-                   proto_version=cirq.google.ProtoVersion.V2)
+                   proto_version=cirq_google.ProtoVersion.V2)
 
 # Replace the processor id to get the device with that id.
-device = engine.get_processor('processor_id').get_device(
-  gate_sets=[cg.gate_sets.SQRT_ISWAP_GATESET])
+device = engine.get_processor('processor_id').get_device()
 
 q0, q1 = cirq.LineQubit.range(2)
+circuit = cirq.Circuit(cirq.CZ(q0, q1))
 
-# Raises a ValueError, since this is not a supported gate.
-cirq.Circuit(cirq.CZ(q0,q1), device=device)
+# Raises a ValueError, since CZ is not a supported gate.
+device.validate_circuit(circuit)
 ```
 
 Note that, if network traffic is undesired, the `DeviceSpecification` can

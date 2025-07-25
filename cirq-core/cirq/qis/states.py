@@ -11,21 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Classes and methods for quantum states."""
 
-from typing import (
-    Any,
-    cast,
-    Iterable,
-    List,
-    Optional,
-    Sequence,
-    Set,
-    TYPE_CHECKING,
-    Tuple,
-    Union,
-)
+from __future__ import annotations
+
 import itertools
+from typing import Any, cast, Iterable, Sequence, TYPE_CHECKING, Union
 
 import numpy as np
 
@@ -33,8 +25,9 @@ from cirq import value
 from cirq._doc import document
 
 if TYPE_CHECKING:
-    import cirq
     from numpy.typing import DTypeLike
+
+    import cirq
 
 DEFAULT_COMPLEX_DTYPE = np.complex64
 
@@ -45,11 +38,11 @@ STATE_VECTOR_LIKE = Union[
     Sequence[int],
     # Explicit state vector or state tensor.
     np.ndarray,
-    Sequence[Union[int, float, complex]],
+    Sequence[complex],
     # Product state object
     'cirq.ProductState',
 ]
-document(STATE_VECTOR_LIKE, """An object representing a state vector.""")  # type: ignore
+document(STATE_VECTOR_LIKE, """An object representing a state vector.""")
 
 QUANTUM_STATE_LIKE = Union[
     # state vector
@@ -59,7 +52,7 @@ QUANTUM_STATE_LIKE = Union[
     # quantum state object
     'cirq.QuantumState',
 ]
-document(QUANTUM_STATE_LIKE, """An object representing a quantum state.""")  # type: ignore
+document(QUANTUM_STATE_LIKE, """An object representing a quantum state.""")
 
 
 class QuantumState:
@@ -71,9 +64,9 @@ class QuantumState:
     def __init__(
         self,
         data: np.ndarray,
-        qid_shape: Optional[Tuple[int, ...]] = None,
+        qid_shape: tuple[int, ...] | None = None,
         *,  # Force keyword arguments
-        dtype: Optional['DTypeLike'] = None,
+        dtype: DTypeLike | None = None,
         validate: bool = True,
         atol: float = 1e-7,
     ) -> None:
@@ -106,7 +99,7 @@ class QuantumState:
         return self._data
 
     @property
-    def qid_shape(self) -> Tuple[int, ...]:
+    def qid_shape(self) -> tuple[int, ...]:
         """The qid shape of the quantum state."""
         return self._qid_shape
 
@@ -115,7 +108,7 @@ class QuantumState:
         """The data type of the quantum state."""
         return self._data.dtype
 
-    def state_vector(self) -> Optional[np.ndarray]:
+    def state_vector(self) -> np.ndarray | None:
         """Return the state vector of this state.
 
         A state vector stores the amplitudes of a pure state as a
@@ -126,7 +119,7 @@ class QuantumState:
             return None
         return np.reshape(self.data, (self._dim,))
 
-    def state_tensor(self) -> Optional[np.ndarray]:
+    def state_tensor(self) -> np.ndarray | None:
         """Return the state tensor of this state.
 
         A state tensor stores the amplitudes of a pure state as an array with
@@ -165,7 +158,7 @@ class QuantumState:
         return self.data.shape == (self._dim, self._dim)
 
     def validate(
-        self, *, dtype: Optional['DTypeLike'] = None, atol=1e-7  # Force keyword arguments
+        self, *, dtype: DTypeLike | None = None, atol=1e-7  # Force keyword arguments
     ) -> None:
         """Check if this quantum state is valid.
 
@@ -182,10 +175,7 @@ class QuantumState:
             state_vector = self.state_vector()
             assert state_vector is not None
             validate_normalized_state_vector(
-                state_vector,
-                qid_shape=self.qid_shape,
-                dtype=dtype,
-                atol=atol,
+                state_vector, qid_shape=self.qid_shape, dtype=dtype, atol=atol
             )
         elif self._is_density_matrix():
             validate_density_matrix(
@@ -200,12 +190,12 @@ class QuantumState:
 
 
 def quantum_state(
-    state: 'cirq.QUANTUM_STATE_LIKE',
-    qid_shape: Optional[Tuple[int, ...]] = None,
+    state: cirq.QUANTUM_STATE_LIKE,
+    qid_shape: tuple[int, ...] | None = None,
     *,  # Force keyword arguments
     copy: bool = False,
     validate: bool = True,
-    dtype: Optional['DTypeLike'] = None,
+    dtype: DTypeLike | None = None,
     atol: float = 1e-7,
 ) -> QuantumState:
     """Create a QuantumState object from a state-like object.
@@ -277,7 +267,7 @@ def quantum_state(
             dtype = DEFAULT_COMPLEX_DTYPE
         data = one_hot(index=state, shape=(dim,), dtype=dtype)
     else:
-        data = np.array(state, copy=False)
+        data = np.asarray(state)
         if qid_shape is None:
             qid_shape = infer_qid_shape(state)
         if data.ndim == 1 and data.dtype.kind != 'c':
@@ -305,11 +295,11 @@ def quantum_state(
 
 def density_matrix(
     state: np.ndarray,
-    qid_shape: Optional[Tuple[int, ...]] = None,
+    qid_shape: tuple[int, ...] | None = None,
     *,  # Force keyword arguments
     copy: bool = False,
     validate: bool = True,
-    dtype: Optional['DTypeLike'] = None,
+    dtype: DTypeLike | None = None,
     atol: float = 1e-7,
 ) -> QuantumState:
     """Create a QuantumState object from a density matrix.
@@ -327,7 +317,7 @@ def density_matrix(
         ValueError: Invalid density matrix.
     """
     if state.ndim != 2 or state.shape[0] != state.shape[1]:
-        raise ValueError('A density matrix must be a square matrix. ' f'Got shape {state.shape}.')
+        raise ValueError(f'A density matrix must be a square matrix. Got shape {state.shape}.')
     dim, _ = state.shape
     if qid_shape is None:
         qid_shape = _infer_qid_shape_from_dimension(dim)
@@ -340,7 +330,7 @@ def density_matrix(
     )
 
 
-def _infer_qid_shape_from_dimension(dim: int) -> Tuple[int, ...]:
+def _infer_qid_shape_from_dimension(dim: int) -> tuple[int, ...]:
     if dim != 0 and dim & dim - 1 == 0:
         # dim is a power of 2, assume qubits
         n_qubits = dim.bit_length() - 1
@@ -354,7 +344,7 @@ _NON_INT_STATE_LIKE = Union[
     Sequence[int],
     # Explicit state vector or state tensor.
     np.ndarray,
-    Sequence[Union[int, float, complex]],
+    Sequence[complex],
     # Product state object
     'cirq.ProductState',
     # Quantum state object
@@ -362,7 +352,7 @@ _NON_INT_STATE_LIKE = Union[
 ]
 
 
-def infer_qid_shape(*states: 'cirq.QUANTUM_STATE_LIKE') -> Tuple[int, ...]:
+def infer_qid_shape(*states: cirq.QUANTUM_STATE_LIKE) -> tuple[int, ...]:
     """Infer the qid shape of a set of states.
 
     This is a heuristic to determine a qid shape compatible with all of the
@@ -375,7 +365,7 @@ def infer_qid_shape(*states: 'cirq.QUANTUM_STATE_LIKE') -> Tuple[int, ...]:
     an error is raised.
 
     Args:
-        states: The states for which to infer the qid shape.
+        *states: The states for which to infer the qid shape.
 
     Returns:
         The inferred qid shape.
@@ -387,8 +377,8 @@ def infer_qid_shape(*states: 'cirq.QUANTUM_STATE_LIKE') -> Tuple[int, ...]:
     if not states:
         raise ValueError('No states were specified.')
 
-    integer_states: List[int] = []
-    non_integer_states: List[_NON_INT_STATE_LIKE] = []
+    integer_states: list[int] = []
+    non_integer_states: list[_NON_INT_STATE_LIKE] = []
     for state in states:
         if isinstance(state, int):
             integer_states.append(state)
@@ -422,7 +412,7 @@ def infer_qid_shape(*states: 'cirq.QUANTUM_STATE_LIKE') -> Tuple[int, ...]:
     return qid_shape
 
 
-def _potential_qid_shapes(state: _NON_INT_STATE_LIKE) -> '_QidShapeSet':
+def _potential_qid_shapes(state: _NON_INT_STATE_LIKE) -> _QidShapeSet:
     """Return a set of qid shapes compatible with a given state."""
     if isinstance(state, QuantumState):
         return _QidShapeSet(explicit_qid_shapes={state.qid_shape})
@@ -458,9 +448,9 @@ class _QidShapeSet:
     def __init__(
         self,
         *,
-        explicit_qid_shapes: Optional[Set[Tuple[int, ...]]] = None,
-        unfactorized_total_dimension: Optional[int] = None,
-        min_qudit_dimensions: Optional[Tuple[int, ...]] = None,
+        explicit_qid_shapes: set[tuple[int, ...]] | None = None,
+        unfactorized_total_dimension: int | None = None,
+        min_qudit_dimensions: tuple[int, ...] | None = None,
     ) -> None:
         """Create a qid shape set.
 
@@ -484,7 +474,7 @@ class _QidShapeSet:
         self.unfactorized_total_dimension = unfactorized_total_dimension
         self.min_qudit_dimensions = min_qudit_dimensions
 
-    def intersection_subset(self, other: '_QidShapeSet'):
+    def intersection_subset(self, other: _QidShapeSet):
         """Return a subset of the intersection with other qid shape set."""
         explicit_qid_shapes = self.explicit_qid_shapes & other.explicit_qid_shapes
         unfactorized_total_dimension = None
@@ -537,8 +527,7 @@ class _QidShapeSet:
                 'with the corresponding qudit dimensions being at least '
                 f'{self.min_qudit_dimensions}.'
             )
-        if len(self.explicit_qid_shapes) > 1:
-            # coverage: ignore
+        if len(self.explicit_qid_shapes) > 1:  # pragma: no cover
             raise ValueError(
                 f'Qid shape is ambiguous: Could be any one of {self.explicit_qid_shapes}.'
             )
@@ -550,7 +539,7 @@ class _QidShapeSet:
                 f'a Hilbert space dimension of {self.unfactorized_total_dimension}.'
             )
 
-    def infer_qid_shape(self) -> Optional[Tuple[int, ...]]:
+    def infer_qid_shape(self) -> tuple[int, ...] | None:
         """Return a qid shape from this set, or None."""
         self._raise_value_error_if_ambiguous()
         if self.unfactorized_total_dimension is not None:
@@ -561,8 +550,8 @@ class _QidShapeSet:
 
 
 def _intersection_explicit_with_unfactorized_qid_shapes(
-    explicit_qid_shapes: Set[Tuple[int, ...]], unfactorized_total_dimension: int
-) -> Set[Tuple[int, ...]]:
+    explicit_qid_shapes: set[tuple[int, ...]], unfactorized_total_dimension: int
+) -> set[tuple[int, ...]]:
     return {
         qid_shape
         for qid_shape in explicit_qid_shapes
@@ -571,8 +560,8 @@ def _intersection_explicit_with_unfactorized_qid_shapes(
 
 
 def _intersection_explicit_with_min_qudit_dims_qid_shapes(
-    explicit_qid_shapes: Set[Tuple[int, ...]], min_qudit_dimensions: Tuple[int, ...]
-) -> Set[Tuple[int, ...]]:
+    explicit_qid_shapes: set[tuple[int, ...]], min_qudit_dimensions: tuple[int, ...]
+) -> set[tuple[int, ...]]:
     return {
         qid_shape
         for qid_shape in explicit_qid_shapes
@@ -582,8 +571,8 @@ def _intersection_explicit_with_min_qudit_dims_qid_shapes(
 
 
 def _intersection_min_qudit_dims_qid_shapes(
-    min_qudit_dimensions1: Tuple[int, ...], min_qudit_dimensions2: Tuple[int, ...]
-) -> Optional[Tuple[int, ...]]:
+    min_qudit_dimensions1: tuple[int, ...], min_qudit_dimensions2: tuple[int, ...]
+) -> tuple[int, ...] | None:
     if len(min_qudit_dimensions1) == len(min_qudit_dimensions2):
         return tuple(
             max(dim1, dim2) for dim1, dim2 in zip(min_qudit_dimensions1, min_qudit_dimensions2)
@@ -592,7 +581,7 @@ def _intersection_min_qudit_dims_qid_shapes(
 
 
 def bloch_vector_from_state_vector(
-    state_vector: np.ndarray, index: int, qid_shape: Optional[Tuple[int, ...]] = None
+    state_vector: np.ndarray, index: int, qid_shape: tuple[int, ...] | None = None
 ) -> np.ndarray:
     """Returns the bloch vector of a qubit.
 
@@ -632,8 +621,8 @@ def bloch_vector_from_state_vector(
 
 def density_matrix_from_state_vector(
     state_vector: np.ndarray,
-    indices: Optional[Iterable[int]] = None,
-    qid_shape: Optional[Tuple[int, ...]] = None,
+    indices: Iterable[int] | None = None,
+    qid_shape: tuple[int, ...] | None = None,
 ) -> np.ndarray:
     r"""Returns the density matrix of the state vector.
 
@@ -695,8 +684,8 @@ def density_matrix_from_state_vector(
         state_vector,
         list(range(n_qubits)),
         np.conj(state_vector),
-        sum_inds.tolist(),
-        indices + sum_inds[indices].tolist(),
+        cast(list, sum_inds.tolist()),
+        indices + cast(list, sum_inds[indices].tolist()),
     )
     new_shape = np.prod([shape[i] for i in indices], dtype=np.int64)
 
@@ -704,15 +693,16 @@ def density_matrix_from_state_vector(
 
 
 def dirac_notation(
-    state_vector: np.ndarray, decimals: int = 2, qid_shape: Optional[Tuple[int, ...]] = None
+    state_vector: np.ndarray, decimals: int = 2, qid_shape: tuple[int, ...] | None = None
 ) -> str:
     """Returns the state vector as a string in Dirac notation.
 
     For example:
 
-        state_vector = np.array([1/np.sqrt(2), 1/np.sqrt(2)],
-                                dtype=np.complex64)
-        print(dirac_notation(state_vector)) -> 0.71|0⟩ + 0.71|1⟩
+    >>> state_vector = np.array([1/np.sqrt(2), 1/np.sqrt(2)], dtype=np.complex64)
+    >>> print(cirq.dirac_notation(state_vector))
+    0.71|0⟩ + 0.71|1⟩
+
 
     Args:
         state_vector: A sequence representing a state vector in which
@@ -726,9 +716,20 @@ def dirac_notation(
     Returns:
         A pretty string consisting of a sum of computational basis kets
         and non-zero floats of the specified accuracy.
+
+    Raises:
+        ValueError: If there is a shape mismatch between state_vector and qid_shape.
+            Otherwise, when qid_shape is not mentioned and length of state_vector
+            is not a power of 2.
     """
     if qid_shape is None:
         qid_shape = (2,) * (len(state_vector).bit_length() - 1)
+
+    if len(state_vector) != np.prod(qid_shape, dtype=np.int64):
+        raise ValueError(
+            'state_vector has incorrect size. '
+            f'Expected {np.prod(qid_shape, dtype=np.int64)} but was {len(state_vector)}.'
+        )
 
     digit_separator = '' if max(qid_shape, default=0) < 10 else ','
     perm_list = [
@@ -762,11 +763,11 @@ def dirac_notation(
 
 
 def to_valid_state_vector(
-    state_rep: 'cirq.STATE_VECTOR_LIKE',
-    num_qubits: Optional[int] = None,
+    state_rep: cirq.STATE_VECTOR_LIKE,
+    num_qubits: int | None = None,
     *,  # Force keyword arguments
-    qid_shape: Optional[Sequence[int]] = None,
-    dtype: Optional['DTypeLike'] = None,
+    qid_shape: Sequence[int] | None = None,
+    dtype: DTypeLike | None = None,
     atol: float = 1e-7,
 ) -> np.ndarray:
     """Verifies the state_rep is valid and converts it to ndarray form.
@@ -820,8 +821,8 @@ def to_valid_state_vector(
         num_qubits = len(qid_shape)
     if num_qubits != len(qid_shape):
         raise ValueError(
-            'num_qubits != len(qid_shape). num_qubits is <{!r}>. '
-            'qid_shape is <{!r}>.'.format(num_qubits, qid_shape)
+            f'num_qubits != len(qid_shape). num_qubits is <{num_qubits!r}>. '
+            f'qid_shape is <{qid_shape!r}>.'
         )
 
     if isinstance(state_rep, np.ndarray):
@@ -831,9 +832,8 @@ def to_valid_state_vector(
 
 
 def _qudit_values_to_state_tensor(
-    *, state_vector: np.ndarray, qid_shape: Tuple[int, ...], dtype: Optional['DTypeLike']
+    *, state_vector: np.ndarray, qid_shape: tuple[int, ...], dtype: DTypeLike | None
 ) -> np.ndarray:
-
     for i in range(len(qid_shape)):
         s = state_vector[i]
         q = qid_shape[i]
@@ -847,7 +847,7 @@ def _qudit_values_to_state_tensor(
             )
 
     if state_vector.dtype.kind[0] not in '?bBiu':
-        raise ValueError(
+        raise ValueError(  # pragma: no cover
             f'Expected a bool or int entry for each qudit in '
             f'`state`, because len(state) == len(qid_shape), '
             f'but got dtype {state_vector.dtype}.'
@@ -864,8 +864,8 @@ def _qudit_values_to_state_tensor(
 def validate_normalized_state_vector(
     state_vector: np.ndarray,
     *,  # Force keyword arguments
-    qid_shape: Tuple[int, ...],
-    dtype: Optional['DTypeLike'] = None,
+    qid_shape: tuple[int, ...],
+    dtype: DTypeLike | None = None,
     atol: float = 1e-7,
 ) -> None:
     """Checks that the given state vector is valid.
@@ -883,15 +883,12 @@ def validate_normalized_state_vector(
     """
     if dtype and state_vector.dtype != dtype:
         raise ValueError(
-            'state_vector has invalid dtype. Expected {} but was {}'.format(
-                dtype, state_vector.dtype
-            )
+            f'state_vector has invalid dtype. Expected {dtype} but was {state_vector.dtype}'
         )
     if state_vector.size != np.prod(qid_shape, dtype=np.int64):
         raise ValueError(
-            'state_vector has incorrect size. Expected {} but was {}.'.format(
-                np.prod(qid_shape, dtype=np.int64), state_vector.size
-            )
+            'state_vector has incorrect size. '
+            f'Expected {np.prod(qid_shape, dtype=np.int64)} but was {state_vector.size}.'
         )
     norm = np.sum(np.abs(state_vector) ** 2)
     if not np.isclose(norm, 1, atol=atol):
@@ -899,8 +896,8 @@ def validate_normalized_state_vector(
 
 
 def validate_qid_shape(
-    state_vector: np.ndarray, qid_shape: Optional[Tuple[int, ...]]
-) -> Tuple[int, ...]:
+    state_vector: np.ndarray, qid_shape: tuple[int, ...] | None
+) -> tuple[int, ...]:
     """Validates the size of the given `state_vector` against the given shape.
 
     Returns:
@@ -916,8 +913,8 @@ def validate_qid_shape(
         qid_shape = (2,) * (size.bit_length() - 1)
     if size != np.prod(qid_shape, dtype=np.int64):
         raise ValueError(
-            'state_vector.size ({}) is not a power of two or is not a product '
-            'of the qid shape {!r}.'.format(size, qid_shape)
+            f'state_vector.size ({size}) is not a power of two or is not a product '
+            f'of the qid shape {qid_shape!r}.'
         )
     return qid_shape
 
@@ -933,11 +930,11 @@ def validate_indices(num_qubits: int, indices: Sequence[int]) -> None:
 
 
 def to_valid_density_matrix(
-    density_matrix_rep: Union[np.ndarray, 'cirq.STATE_VECTOR_LIKE'],
-    num_qubits: Optional[int] = None,
+    density_matrix_rep: np.ndarray | cirq.STATE_VECTOR_LIKE,
+    num_qubits: int | None = None,
     *,  # Force keyword arguments
-    qid_shape: Optional[Tuple[int, ...]] = None,
-    dtype: Optional['DTypeLike'] = None,
+    qid_shape: tuple[int, ...] | None = None,
+    dtype: DTypeLike | None = None,
     atol: float = 1e-7,
 ) -> np.ndarray:
     """Verifies the density_matrix_rep is valid and converts it to ndarray form.
@@ -968,9 +965,13 @@ def to_valid_density_matrix(
         ValueError if the density_matrix_rep is not valid.
     """
     qid_shape = _qid_shape_from_args(num_qubits, qid_shape)
-    if isinstance(density_matrix_rep, np.ndarray) and density_matrix_rep.ndim == 2:
-        validate_density_matrix(density_matrix_rep, qid_shape=qid_shape, dtype=dtype, atol=atol)
-        return density_matrix_rep
+    if isinstance(density_matrix_rep, np.ndarray):
+        N = np.prod(qid_shape, dtype=np.int64)
+        if len(qid_shape) > 1 and density_matrix_rep.shape == qid_shape * 2:
+            density_matrix_rep = density_matrix_rep.reshape((N, N))
+        if density_matrix_rep.shape == (N, N):
+            validate_density_matrix(density_matrix_rep, qid_shape=qid_shape, dtype=dtype, atol=atol)
+            return density_matrix_rep
 
     state_vector = to_valid_state_vector(
         density_matrix_rep, len(qid_shape), qid_shape=qid_shape, dtype=dtype
@@ -981,8 +982,8 @@ def to_valid_density_matrix(
 def validate_density_matrix(
     density_matrix: np.ndarray,
     *,  # Force keyword arguments
-    qid_shape: Tuple[int, ...],
-    dtype: Optional['DTypeLike'] = None,
+    qid_shape: tuple[int, ...],
+    dtype: DTypeLike | None = None,
     atol: float = 1e-7,
 ) -> None:
     """Checks that the given density matrix is valid.
@@ -1022,8 +1023,8 @@ def validate_density_matrix(
 
 
 def _qid_shape_from_args(
-    num_qubits: Optional[int], qid_shape: Optional[Tuple[int, ...]]
-) -> Tuple[int, ...]:
+    num_qubits: int | None, qid_shape: tuple[int, ...] | None
+) -> tuple[int, ...]:
     """Returns either `(2,) * num_qubits` or `qid_shape`.
 
     Raises:
@@ -1034,23 +1035,23 @@ def _qid_shape_from_args(
             'Either the num_qubits or qid_shape argument must be specified. Both were None.'
         )
     if num_qubits is None:
-        return cast(Tuple[int, ...], qid_shape)
+        return cast(tuple[int, ...], qid_shape)
     if qid_shape is None:
         return (2,) * num_qubits
     if len(qid_shape) != num_qubits:
         raise ValueError(
-            'num_qubits != len(qid_shape). num_qubits was {!r}. '
-            'qid_shape was {!r}.'.format(num_qubits, qid_shape)
+            f'num_qubits != len(qid_shape). num_qubits was {num_qubits!r}. '
+            f'qid_shape was {qid_shape!r}.'
         )
     return qid_shape
 
 
 def one_hot(
     *,
-    index: Union[None, int, Sequence[int]] = None,
-    shape: Union[int, Sequence[int]],
+    index: None | int | Sequence[int] = None,
+    shape: int | Sequence[int],
     value: Any = 1,
-    dtype: 'DTypeLike',
+    dtype: DTypeLike,
 ) -> np.ndarray:
     """Returns a numpy array with all 0s and a single non-zero entry(default 1).
 
@@ -1071,7 +1072,7 @@ def one_hot(
     return result
 
 
-def eye_tensor(half_shape: Tuple[int, ...], *, dtype: 'DTypeLike') -> np.ndarray:
+def eye_tensor(half_shape: tuple[int, ...], *, dtype: DTypeLike) -> np.ndarray:
     """Returns an identity matrix reshaped into a tensor.
 
     Args:

@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple, Optional, cast, Set
+from __future__ import annotations
 
 import abc
 import os.path
+from typing import cast
 
 from dev_tools import env_tools, shell_tools
 
@@ -24,7 +25,7 @@ class CheckResult:
     """Output of a status check that passed, failed, or error'ed."""
 
     def __init__(
-        self, check: 'Check', success: bool, message: str, unexpected_error: Optional[Exception]
+        self, check: Check, success: bool, message: str, unexpected_error: Exception | None
     ) -> None:
         self.check = check
         self.success = success
@@ -53,7 +54,7 @@ class Check(metaclass=abc.ABCMeta):
         """The name of this status check, as shown on github."""
 
     @abc.abstractmethod
-    def perform_check(self, env: env_tools.PreparedEnv, verbose: bool) -> Tuple[bool, str]:
+    def perform_check(self, env: env_tools.PreparedEnv, verbose: bool) -> tuple[bool, str]:
         """Evaluates the status check and returns a pass/fail with message.
 
         Args:
@@ -64,11 +65,11 @@ class Check(metaclass=abc.ABCMeta):
             A tuple containing a pass/fail boolean and then a details message.
         """
 
-    def needs_python2_env(self):
+    def needs_python2_env(self) -> bool:
         return False
 
     def run(
-        self, env: env_tools.PreparedEnv, verbose: bool, previous_failures: Set['Check']
+        self, env: env_tools.PreparedEnv, verbose: bool, previous_failures: set[Check]
     ) -> CheckResult:
         """Evaluates this check.
 
@@ -107,7 +108,7 @@ class Check(metaclass=abc.ABCMeta):
         return result
 
     def pick_env_and_run_and_report(
-        self, env: env_tools.PreparedEnv, verbose: bool, previous_failures: Set['Check']
+        self, env: env_tools.PreparedEnv, verbose: bool, previous_failures: set[Check]
     ) -> CheckResult:
         """Evaluates this check in python 3 or 2.7, and reports to github.
 
@@ -123,10 +124,9 @@ class Check(metaclass=abc.ABCMeta):
             A CheckResult instance.
         """
         env.report_status_to_github('pending', 'Running...', self.context())
-        chosen_env = cast(env_tools.PreparedEnv, env)
-        os.chdir(cast(str, chosen_env.destination_directory))
+        os.chdir(cast(str, env.destination_directory))
 
-        result = self.run(chosen_env, verbose, previous_failures)
+        result = self.run(env, verbose, previous_failures)
 
         if result.unexpected_error is not None:
             env.report_status_to_github('error', 'Unexpected error.', self.context())

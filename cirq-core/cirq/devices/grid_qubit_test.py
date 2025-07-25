@@ -11,7 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for grid_qubit."""
+
+from __future__ import annotations
 
 import pickle
 
@@ -40,10 +43,29 @@ def test_eq():
     eq.make_equality_group(lambda: cirq.GridQid(0, 0, dimension=3))
 
 
-def test_pickled_hash():
-    q = cirq.GridQubit(3, 4)
-    q_bad = cirq.GridQubit(3, 4)
-    q_bad._hash += 1
+def test_grid_qubit_pickled_hash():
+    # Use a large number that is unlikely to be used by any other tests.
+    row, col = 123456789, 2345678910
+    q_bad = cirq.GridQubit(row, col)
+    cirq.GridQubit._cache.pop((row, col))
+    q = cirq.GridQubit(row, col)
+    _test_qid_pickled_hash(q, q_bad)
+
+
+def test_grid_qid_pickled_hash():
+    # Use a large number that is unlikely to be used by any other tests.
+    row, col = 123456789, 2345678910
+    q_bad = cirq.GridQid(row, col, dimension=3)
+    cirq.GridQid._cache.pop((row, col, 3))
+    q = cirq.GridQid(row, col, dimension=3)
+    _test_qid_pickled_hash(q, q_bad)
+
+
+def _test_qid_pickled_hash(q: cirq.Qid, q_bad: cirq.Qid) -> None:
+    """Test that hashes are not pickled with Qid instances."""
+    assert q_bad is not q
+    _ = hash(q_bad)  # compute hash to ensure it is cached.
+    q_bad._hash = q_bad._hash + 1  # type: ignore[attr-defined]
     assert q_bad == q
     assert hash(q_bad) != hash(q)
     data = pickle.dumps(q_bad)
@@ -53,8 +75,17 @@ def test_pickled_hash():
 
 
 def test_str():
-    assert str(cirq.GridQubit(5, 2)) == '(5, 2)'
-    assert str(cirq.GridQid(5, 2, dimension=3)) == '(5, 2) (d=3)'
+    assert str(cirq.GridQubit(5, 2)) == 'q(5, 2)'
+    assert str(cirq.GridQid(5, 2, dimension=3)) == 'q(5, 2) (d=3)'
+
+
+def test_circuit_info():
+    assert cirq.circuit_diagram_info(cirq.GridQubit(5, 2)) == cirq.CircuitDiagramInfo(
+        wire_symbols=('(5, 2)',)
+    )
+    assert cirq.circuit_diagram_info(cirq.GridQid(5, 2, dimension=3)) == cirq.CircuitDiagramInfo(
+        wire_symbols=('(5, 2) (d=3)',)
+    )
 
 
 def test_repr():
@@ -64,10 +95,7 @@ def test_repr():
 
 def test_cmp():
     order = cirq.testing.OrderTester()
-    order.add_ascending_equivalence_group(
-        cirq.GridQubit(0, 0),
-        cirq.GridQid(0, 0, dimension=2),
-    )
+    order.add_ascending_equivalence_group(cirq.GridQubit(0, 0), cirq.GridQid(0, 0, dimension=2))
     order.add_ascending(
         cirq.GridQid(0, 0, dimension=3),
         cirq.GridQid(0, 1, dimension=1),
@@ -320,38 +348,45 @@ def test_neg():
 
 
 def test_to_json():
-    assert cirq.GridQubit(5, 6)._json_dict_() == {
-        'cirq_type': 'GridQubit',
-        'row': 5,
-        'col': 6,
-    }
+    assert cirq.GridQubit(5, 6)._json_dict_() == {'row': 5, 'col': 6}
 
-    assert cirq.GridQid(5, 6, dimension=3)._json_dict_() == {
-        'cirq_type': 'GridQid',
-        'row': 5,
-        'col': 6,
-        'dimension': 3,
-    }
+    assert cirq.GridQid(5, 6, dimension=3)._json_dict_() == {'row': 5, 'col': 6, 'dimension': 3}
 
 
 def test_immutable():
-    with pytest.raises(AttributeError, match="can't set attribute"):
+    # Match one of two strings. The second one is message returned since python 3.11.
+    with pytest.raises(
+        AttributeError,
+        match="(can't set attribute)|(property 'col' of 'GridQubit' object has no setter)",
+    ):
         q = cirq.GridQubit(1, 2)
         q.col = 3
 
-    with pytest.raises(AttributeError, match="can't set attribute"):
+    with pytest.raises(
+        AttributeError,
+        match="(can't set attribute)|(property 'row' of 'GridQubit' object has no setter)",
+    ):
         q = cirq.GridQubit(1, 2)
         q.row = 3
 
-    with pytest.raises(AttributeError, match="can't set attribute"):
+    with pytest.raises(
+        AttributeError,
+        match="(can't set attribute)|(property 'col' of 'GridQid' object has no setter)",
+    ):
         q = cirq.GridQid(1, 2, dimension=3)
         q.col = 3
 
-    with pytest.raises(AttributeError, match="can't set attribute"):
+    with pytest.raises(
+        AttributeError,
+        match="(can't set attribute)|(property 'row' of 'GridQid' object has no setter)",
+    ):
         q = cirq.GridQid(1, 2, dimension=3)
         q.row = 3
 
-    with pytest.raises(AttributeError, match="can't set attribute"):
+    with pytest.raises(
+        AttributeError,
+        match="(can't set attribute)|(property 'dimension' of 'GridQid' object has no setter)",
+    ):
         q = cirq.GridQid(1, 2, dimension=3)
         q.dimension = 3
 
@@ -359,3 +394,32 @@ def test_immutable():
 def test_complex():
     assert complex(cirq.GridQubit(row=1, col=2)) == 2 + 1j
     assert isinstance(complex(cirq.GridQubit(row=1, col=2)), complex)
+
+
+@pytest.mark.parametrize('dtype', (np.int8, np.int64, float, np.float64))
+def test_numpy_index(dtype):
+    np5, np6, np3 = [dtype(i) for i in [5, 6, 3]]
+    q = cirq.GridQubit(np5, np6)
+    assert hash(q) == hash(cirq.GridQubit(5, 6))
+    assert q.row == 5
+    assert q.col == 6
+    assert q.dimension == 2
+    assert isinstance(q.dimension, int)
+
+    q = cirq.GridQid(np5, np6, dimension=np3)
+    assert hash(q) == hash(cirq.GridQid(5, 6, dimension=3))
+    assert q.row == 5
+    assert q.col == 6
+    assert q.dimension == 3
+    assert isinstance(q.dimension, int)
+
+
+@pytest.mark.parametrize('dtype', (float, np.float64))
+def test_non_integer_index(dtype):
+    # Not supported type-wise, but is used in practice, so behavior needs to be preserved.
+    q = cirq.GridQubit(dtype(5.5), dtype(6.5))
+    assert hash(q) == hash(cirq.GridQubit(5.5, 6.5))
+    assert q.row == 5.5
+    assert q.col == 6.5
+    assert isinstance(q.row, dtype)
+    assert isinstance(q.col, dtype)

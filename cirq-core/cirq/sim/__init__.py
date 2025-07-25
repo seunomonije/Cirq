@@ -12,98 +12,84 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Base simulation classes and generic simulators."""
-from typing import Tuple, Dict
+"""Classes for circuit simulators and base implementations of these classes."""
 
-from cirq.sim.act_on_args import (
-    ActOnArgs,
+from cirq.sim.clifford import (
+    CliffordSimulator as CliffordSimulator,
+    CliffordSimulatorStepResult as CliffordSimulatorStepResult,
+    CliffordState as CliffordState,
+    CliffordTrialResult as CliffordTrialResult,
+    CliffordTableauSimulationState as CliffordTableauSimulationState,
+    StabilizerChFormSimulationState as StabilizerChFormSimulationState,
+    StabilizerSampler as StabilizerSampler,
+    StabilizerSimulationState as StabilizerSimulationState,
+    StabilizerStateChForm as StabilizerStateChForm,
 )
 
-from cirq.sim.act_on_args_container import (
-    ActOnArgsContainer,
-)
-
-from cirq.sim.act_on_density_matrix_args import (
-    ActOnDensityMatrixArgs,
-)
-
-from cirq.sim.act_on_state_vector_args import (
-    ActOnStateVectorArgs,
-)
-
-from cirq.sim.density_matrix_utils import (
-    measure_density_matrix,
-    sample_density_matrix,
+from cirq.sim.density_matrix_simulation_state import (
+    DensityMatrixSimulationState as DensityMatrixSimulationState,
 )
 
 from cirq.sim.density_matrix_simulator import (
-    DensityMatrixSimulator,
-    DensityMatrixSimulatorState,
-    DensityMatrixStepResult,
-    DensityMatrixTrialResult,
+    DensityMatrixSimulator as DensityMatrixSimulator,
+    DensityMatrixStepResult as DensityMatrixStepResult,
+    DensityMatrixTrialResult as DensityMatrixTrialResult,
 )
 
-from cirq.sim.operation_target import OperationTarget
+from cirq.sim.density_matrix_utils import (
+    measure_density_matrix as measure_density_matrix,
+    sample_density_matrix as sample_density_matrix,
+)
 
 from cirq.sim.mux import (
-    CIRCUIT_LIKE,
-    final_density_matrix,
-    final_state_vector,
-    sample,
-    sample_sweep,
+    CIRCUIT_LIKE as CIRCUIT_LIKE,
+    final_density_matrix as final_density_matrix,
+    final_state_vector as final_state_vector,
+    sample as sample,
+    sample_sweep as sample_sweep,
 )
 
+from cirq.sim.simulation_product_state import SimulationProductState as SimulationProductState
+
+from cirq.sim.simulation_state import SimulationState as SimulationState
+
+from cirq.sim.simulation_state_base import SimulationStateBase as SimulationStateBase
+
 from cirq.sim.simulator import (
-    SimulatesAmplitudes,
-    SimulatesExpectationValues,
-    SimulatesFinalState,
-    SimulatesIntermediateState,
-    SimulatesSamples,
-    SimulationTrialResult,
-    StepResult,
+    SimulatesAmplitudes as SimulatesAmplitudes,
+    SimulatesExpectationValues as SimulatesExpectationValues,
+    SimulatesFinalState as SimulatesFinalState,
+    SimulatesIntermediateState as SimulatesIntermediateState,
+    SimulatesSamples as SimulatesSamples,
+    SimulationTrialResult as SimulationTrialResult,
+    StepResult as StepResult,
 )
 
 from cirq.sim.simulator_base import (
-    StepResultBase,
-    SimulatorBase,
+    SimulationTrialResultBase as SimulationTrialResultBase,
+    SimulatorBase as SimulatorBase,
+    StepResultBase as StepResultBase,
 )
 
 from cirq.sim.sparse_simulator import (
-    Simulator,
-    SparseSimulatorStep,
-)
-
-from cirq.sim.state_vector_simulator import (
-    SimulatesIntermediateStateVector,
-    StateVectorSimulatorState,
-    StateVectorStepResult,
-    StateVectorTrialResult,
+    Simulator as Simulator,
+    SparseSimulatorStep as SparseSimulatorStep,
 )
 
 from cirq.sim.state_vector import (
-    measure_state_vector,
-    sample_state_vector,
-    StateVectorMixin,
+    measure_state_vector as measure_state_vector,
+    sample_state_vector as sample_state_vector,
+    StateVectorMixin as StateVectorMixin,
 )
 
-from cirq.sim.clifford import (
-    ActOnCliffordTableauArgs,
-    ActOnStabilizerCHFormArgs,
-    StabilizerSampler,
-    StabilizerStateChForm,
-    CliffordSimulator,
-    CliffordState,
-    CliffordTableau,
-    CliffordTrialResult,
-    CliffordSimulatorStepResult,
+from cirq.sim.state_vector_simulation_state import (
+    StateVectorSimulationState as StateVectorSimulationState,
 )
 
-# pylint: disable=wrong-import-order
-import sys as _sys
-from cirq._compat import deprecate_attributes as _deprecate_attributes
+from cirq.sim.classical_simulator import ClassicalStateSimulator as ClassicalStateSimulator
 
-deprecated_constants: Dict[str, Tuple[str, str]] = {
-    # currently none, you can use this to deprecate constants, for example like this:
-    # 'STATE_VECTOR_LIKE': ('v0.9', 'Use cirq.STATE_VECTOR_LIKE instead'),
-}
-_sys.modules[__name__] = _deprecate_attributes(_sys.modules[__name__], deprecated_constants)
+from cirq.sim.state_vector_simulator import (
+    SimulatesIntermediateStateVector as SimulatesIntermediateStateVector,
+    StateVectorStepResult as StateVectorStepResult,
+    StateVectorTrialResult as StateVectorTrialResult,
+)

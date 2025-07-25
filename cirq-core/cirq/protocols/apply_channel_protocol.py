@@ -11,22 +11,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """A protocol for implementing high performance channel evolutions."""
 
-from typing import Any, Iterable, Optional, Sequence, TypeVar, Tuple, Union
+from __future__ import annotations
+
+from types import NotImplementedType
+from typing import Any, Iterable, Sequence, TypeVar
 
 import numpy as np
 from typing_extensions import Protocol
 
 from cirq import linalg
 from cirq._doc import doc_private
-from cirq.protocols.apply_unitary_protocol import (
-    apply_unitary,
-    ApplyUnitaryArgs,
-)
-from cirq.protocols.kraus import kraus
 from cirq.protocols import qid_shape_protocol
-from cirq.type_workarounds import NotImplementedType
+from cirq.protocols.apply_unitary_protocol import apply_unitary, ApplyUnitaryArgs
+from cirq.protocols.kraus_protocol import kraus
 
 # This is a special indicator value used by the apply_channel method
 # to determine whether or not the caller provided a 'default' argument. It must
@@ -34,7 +34,7 @@ from cirq.type_workarounds import NotImplementedType
 # that case. It is checked for using `is`, so it won't have a false positive if
 # the user provides a different np.array([]) value.
 
-RaiseTypeErrorIfNotProvided = np.array([])  # type: np.ndarray
+RaiseTypeErrorIfNotProvided: np.ndarray = np.array([])
 
 TDefault = TypeVar('TDefault')
 
@@ -43,13 +43,16 @@ class ApplyChannelArgs:
     r"""Arguments for efficiently performing a channel.
 
     A channel performs the mapping
-        $$
-        X \rightarrow \sum_i A_i X A_i^\dagger
-        $$
+
+    $$
+    X \rightarrow \sum_i A_i X A_i^\dagger
+    $$
+
     for operators $A_i$ that satisfy the normalization condition
-        $$
-        \sum_i A_i^\dagger A_i = I.
-        $$
+
+    $$
+    \sum_i A_i^\dagger A_i = I.
+    $$
 
     The receiving object is expected to mutate `target_tensor` so that it
     contains the density matrix after multiplication, and then return
@@ -123,9 +126,7 @@ class SupportsApplyChannel(Protocol):
     """An object that can efficiently implement a channel."""
 
     @doc_private
-    def _apply_channel_(
-        self, args: ApplyChannelArgs
-    ) -> Union[np.ndarray, None, NotImplementedType]:
+    def _apply_channel_(self, args: ApplyChannelArgs) -> np.ndarray | None | NotImplementedType:
         """Efficiently applies a channel.
 
         This method is given both the target tensor and workspace of the same
@@ -145,7 +146,7 @@ class SupportsApplyChannel(Protocol):
                 `args.target_tensor` and the given buffers.
 
         Returns:
-            If the receiving object is not able to apply a chanel, None
+            If the receiving object is not able to apply a channel, None
             or NotImplemented should be returned.
 
             If the receiving object is able to work inline, it should directly
@@ -165,8 +166,8 @@ class SupportsApplyChannel(Protocol):
 
 
 def apply_channel(
-    val: Any, args: ApplyChannelArgs, default: TDefault = RaiseTypeErrorIfNotProvided
-) -> Union[np.ndarray, TDefault]:
+    val: Any, args: ApplyChannelArgs, default: np.ndarray | TDefault = RaiseTypeErrorIfNotProvided
+) -> np.ndarray | TDefault:
     """High performance evolution under a channel evolution.
 
     If `val` defines an `_apply_channel_` method, that method will be
@@ -225,26 +226,25 @@ def apply_channel(
         raise ValueError(
             'Invalid target_tensor shape or selected axes. '
             'The selected left and right shape of target_tensor '
-            'are not equal. Got {!r} and {!r}.'.format(left_shape, right_shape)
+            f'are not equal. Got {left_shape!r} and {right_shape!r}.'
         )
     if val_qid_shape != left_shape:
         raise ValueError(
             'Invalid channel qid shape is not equal to the '
             'selected left and right shape of target_tensor. '
-            'Got {!r} but expected {!r}.'.format(val_qid_shape, left_shape)
+            f'Got {val_qid_shape!r} but expected {left_shape!r}.'
         )
 
     # Check if the specialized method is present.
-    func = getattr(val, '_apply_channel_', None)
-    if func is not None:
-        result = func(args)
+    if hasattr(val, '_apply_channel_'):
+        result = val._apply_channel_(args)
         if result is not NotImplemented and result is not None:
 
             def err_str(buf_num_str):
                 return (
-                    "Object of type '{}' returned a result object equal to "
-                    "auxiliary_buffer{}. This type violates the contract "
-                    "that appears in apply_channel's documentation.".format(type(val), buf_num_str)
+                    f"Object of type '{type(val)}' returned a result object equal to "
+                    f"auxiliary_buffer{buf_num_str}. This type violates the contract "
+                    "that appears in apply_channel's documentation."
                 )
 
             assert result is not args.auxiliary_buffer0, err_str('0')
@@ -265,13 +265,13 @@ def apply_channel(
     if default is not RaiseTypeErrorIfNotProvided:
         return default
     raise TypeError(
-        "object of type '{}' has no _apply_channel_, _apply_unitary_, "
+        f"object of type '{type(val)}' has no _apply_channel_, _apply_unitary_, "
         "_unitary_, or _kraus_ methods (or they returned None or "
-        "NotImplemented).".format(type(val))
+        "NotImplemented)."
     )
 
 
-def _apply_unitary(val: Any, args: 'ApplyChannelArgs') -> Optional[np.ndarray]:
+def _apply_unitary(val: Any, args: ApplyChannelArgs) -> np.ndarray | None:
     """Attempt to use `apply_unitary` and return the result.
 
     If `val` does not support `apply_unitary` returns None.
@@ -294,9 +294,7 @@ def _apply_unitary(val: Any, args: 'ApplyChannelArgs') -> Optional[np.ndarray]:
     return right_result
 
 
-def _apply_kraus(
-    kraus: Union[Tuple[np.ndarray], Sequence[Any]], args: 'ApplyChannelArgs'
-) -> np.ndarray:
+def _apply_kraus(kraus: tuple[np.ndarray] | Sequence[Any], args: ApplyChannelArgs) -> np.ndarray:
     """Directly apply the kraus operators to the target tensor."""
     # Initialize output.
     args.out_buffer[:] = 0
@@ -311,7 +309,7 @@ def _apply_kraus(
 
 
 def _apply_kraus_single_qubit(
-    kraus: Union[Tuple[Any], Sequence[Any]], args: 'ApplyChannelArgs'
+    kraus: tuple[Any] | Sequence[Any], args: ApplyChannelArgs
 ) -> np.ndarray:
     """Use slicing to apply single qubit channel.  Only for two-level qubits."""
     zero_left = linalg.slice_for_qubits_equal_to(args.left_axes, 0)
@@ -336,7 +334,7 @@ def _apply_kraus_single_qubit(
 
 
 def _apply_kraus_multi_qubit(
-    kraus: Union[Tuple[Any], Sequence[Any]], args: 'ApplyChannelArgs'
+    kraus: tuple[Any] | Sequence[Any], args: ApplyChannelArgs
 ) -> np.ndarray:
     """Use numpy's einsum to apply a multi-qubit channel."""
     qid_shape = tuple(args.target_tensor.shape[i] for i in args.left_axes)

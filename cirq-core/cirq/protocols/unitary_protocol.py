@@ -12,34 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import (
-    Any,
-    TypeVar,
-    Union,
-    Optional,
-)
+from __future__ import annotations
+
+from types import NotImplementedType
+from typing import Any, TypeVar
 
 import numpy as np
 from typing_extensions import Protocol
 
-from cirq import qis
+from cirq import linalg
 from cirq._doc import doc_private
 from cirq.protocols import qid_shape_protocol
-from cirq.protocols.apply_unitary_protocol import (
-    ApplyUnitaryArgs,
-    apply_unitaries,
-)
-from cirq.protocols.decompose_protocol import (
-    _try_decompose_into_operations_and_qubits,
-)
-from cirq.type_workarounds import NotImplementedType
+from cirq.protocols.apply_unitary_protocol import apply_unitaries, ApplyUnitaryArgs
+from cirq.protocols.decompose_protocol import _try_decompose_into_operations_and_qubits
 
 # This is a special indicator value used by the unitary method to determine
 # whether or not the caller provided a 'default' argument. It must be of type
 # np.ndarray to ensure the method has the correct type signature in that case.
 # It is checked for using `is`, so it won't have a false positive if the user
 # provides a different np.array([]) value.
-RaiseTypeErrorIfNotProvided = np.array([])  # type: np.ndarray
+RaiseTypeErrorIfNotProvided: np.ndarray = np.array([])
 
 TDefault = TypeVar('TDefault')
 
@@ -48,7 +40,7 @@ class SupportsUnitary(Protocol):
     """An object that may be describable by a unitary matrix."""
 
     @doc_private
-    def _unitary_(self) -> Union[np.ndarray, NotImplementedType]:
+    def _unitary_(self) -> np.ndarray | NotImplementedType:
         """A unitary matrix describing this value, e.g. the matrix of a gate.
 
         This method is used by the global `cirq.unitary` method. If this method
@@ -87,12 +79,13 @@ class SupportsUnitary(Protocol):
 
 
 def unitary(
-    val: Any, default: TDefault = RaiseTypeErrorIfNotProvided
-) -> Union[np.ndarray, TDefault]:
+    val: Any, default: np.ndarray | TDefault = RaiseTypeErrorIfNotProvided
+) -> np.ndarray | TDefault:
     """Returns a unitary matrix describing the given value.
 
     The matrix is determined by any one of the following techniques:
 
+    - If the value is a numpy array, it is returned directly.
     - The value has a `_unitary_` method that returns something besides None or
         NotImplemented. The matrix is whatever the method returned.
     - The value has a `_decompose_` method that returns a list of operations,
@@ -119,7 +112,13 @@ def unitary(
     Raises:
         TypeError: `val` doesn't have a unitary effect and no default value was
             specified.
+        ValueError: `val` is a numpy array that is not unitary.
     """
+    if isinstance(val, np.ndarray):
+        if not linalg.is_unitary(val):
+            raise ValueError("The provided numpy array is not unitary.")
+        return val
+
     strats = [
         _strat_unitary_from_unitary,
         _strat_unitary_from_apply_unitary,
@@ -138,8 +137,8 @@ def unitary(
         "cirq.unitary failed. "
         "Value doesn't have a (non-parameterized) unitary effect.\n"
         "\n"
-        "type: {}\n"
-        "value: {!r}\n"
+        f"type: {type(val)}\n"
+        f"value: {val!r}\n"
         "\n"
         "The value failed to satisfy any of the following criteria:\n"
         "- A `_unitary_(self)` method that returned a value "
@@ -147,11 +146,11 @@ def unitary(
         "- A `_decompose_(self)` method that returned a "
         "list of unitary operations.\n"
         "- An `_apply_unitary_(self, args) method that returned a value "
-        "besides None or NotImplemented.".format(type(val), val)
+        "besides None or NotImplemented."
     )
 
 
-def _strat_unitary_from_unitary(val: Any) -> Optional[np.ndarray]:
+def _strat_unitary_from_unitary(val: Any) -> np.ndarray | None:
     """Attempts to compute a value's unitary via its _unitary_ method."""
     getter = getattr(val, '_unitary_', None)
     if getter is None:
@@ -159,7 +158,7 @@ def _strat_unitary_from_unitary(val: Any) -> Optional[np.ndarray]:
     return getter()
 
 
-def _strat_unitary_from_apply_unitary(val: Any) -> Optional[np.ndarray]:
+def _strat_unitary_from_apply_unitary(val: Any) -> np.ndarray | None:
     """Attempts to compute a value's unitary via its _apply_unitary_ method."""
     # Check for the magic method.
     method = getattr(val, '_apply_unitary_', None)
@@ -172,9 +171,7 @@ def _strat_unitary_from_apply_unitary(val: Any) -> Optional[np.ndarray]:
         return NotImplemented
 
     # Apply unitary effect to an identity matrix.
-    state = qis.eye_tensor(val_qid_shape, dtype=np.complex128)
-    buffer = np.empty_like(state)
-    result = method(ApplyUnitaryArgs(state, buffer, range(len(val_qid_shape))))
+    result = method(ApplyUnitaryArgs.for_unitary(qid_shape=val_qid_shape))
 
     if result is NotImplemented or result is None:
         return result
@@ -182,22 +179,33 @@ def _strat_unitary_from_apply_unitary(val: Any) -> Optional[np.ndarray]:
     return result.reshape((state_len, state_len))
 
 
-def _strat_unitary_from_decompose(val: Any) -> Optional[np.ndarray]:
+def _strat_unitary_from_decompose(val: Any) -> np.ndarray | None:
     """Attempts to compute a value's unitary via its _decompose_ method."""
     # Check if there's a decomposition.
     operations, qubits, val_qid_shape = _try_decompose_into_operations_and_qubits(val)
     if operations is None:
         return NotImplemented
 
+    all_qubits = frozenset(q for op in operations for q in op.qubits)
+    work_qubits = frozenset(qubits)
+    ancillas = tuple(sorted(all_qubits.difference(work_qubits)))
+
+    ordered_qubits = ancillas + tuple(qubits)
+    val_qid_shape = qid_shape_protocol.qid_shape(ancillas) + val_qid_shape
+
     # Apply sub-operations' unitary effects to an identity matrix.
-    state = qis.eye_tensor(val_qid_shape, dtype=np.complex128)
-    buffer = np.empty_like(state)
     result = apply_unitaries(
-        operations, qubits, ApplyUnitaryArgs(state, buffer, range(len(val_qid_shape))), None
+        operations, ordered_qubits, ApplyUnitaryArgs.for_unitary(qid_shape=val_qid_shape), None
     )
 
     # Package result.
     if result is None:
         return None
+
     state_len = np.prod(val_qid_shape, dtype=np.int64)
-    return result.reshape((state_len, state_len))
+    result = result.reshape((state_len, state_len))
+    # Assuming borrowable qubits are restored to their original state and
+    # clean qubits restord to the zero state then the desired unitary is
+    # the upper left square.
+    work_state_len = np.prod(val_qid_shape[len(ancillas) :], dtype=np.int64)
+    return result[:work_state_len, :work_state_len]

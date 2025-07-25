@@ -11,11 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import pytest
-import cirq
 
-from cirq_pasqal import PasqalNoiseModel, PasqalDevice
+from __future__ import annotations
+
+import pytest
+
+import cirq
 from cirq.ops import NamedQubit
+from cirq_pasqal import PasqalDevice, PasqalNoiseModel
 
 
 def test_noise_model_init():
@@ -42,7 +45,7 @@ def test_noisy_moments():
     circuit = cirq.Circuit()
     circuit.append(cirq.ops.CZ(p_qubits[0], p_qubits[1]))
     circuit.append(cirq.ops.Z(p_qubits[1]))
-    p_circuit = cirq.Circuit(circuit, device=p_device)
+    p_circuit = cirq.Circuit(circuit)
 
     n_mts = []
     for moment in p_circuit._moments:
@@ -65,7 +68,7 @@ def test_default_noise():
     circuit = cirq.Circuit()
     Gate_l = cirq.ops.CZPowGate(exponent=2)
     circuit.append(Gate_l.on(p_qubits[0], p_qubits[1]))
-    p_circuit = cirq.Circuit(circuit, device=p_device)
+    p_circuit = cirq.Circuit(circuit)
     n_mts = []
     for moment in p_circuit._moments:
         n_mts.append(noise_model.noisy_moment(moment, p_qubits))

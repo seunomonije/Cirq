@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-from typing import List, Optional
+from __future__ import annotations
 
 import os
+import sys
+
 import requests
 
-from dev_tools import shell_tools, github_repository
+from dev_tools import github_repository, shell_tools
 
 
 class PreparedEnv:
@@ -26,11 +27,11 @@ class PreparedEnv:
 
     def __init__(
         self,
-        github_repo: Optional[github_repository.GithubRepository],
-        actual_commit_id: Optional[str],
+        github_repo: github_repository.GithubRepository | None,
+        actual_commit_id: str | None,
         compare_commit_id: str,
-        destination_directory: Optional[str],
-        virtual_env_path: Optional[str],
+        destination_directory: str | None,
+        virtual_env_path: str | None,
     ) -> None:
         """Initializes a description of a prepared (or desired) environment.
 
@@ -64,7 +65,7 @@ class PreparedEnv:
         return os.path.join(self.virtual_env_path, 'bin', program)
 
     def report_status_to_github(
-        self, state: str, description: str, context: str, target_url: Optional[str] = None
+        self, state: str, description: str, context: str, target_url: str | None = None
     ):
         """Sets a commit status indicator on github.
 
@@ -82,8 +83,9 @@ class PreparedEnv:
 
         Raises:
             ValueError: Not one of the allowed states.
-            IOError: The HTTP post request failed, or the response didn't have
-                a 201 code indicating success in the expected way.
+            OSError: The HTTP post request failed, or the response didn't have
+                a 201 code indicating success in the expected way. This is actually
+                an IOError, which is equal to an OSError.
         """
         if state not in ['error', 'failure', 'pending', 'success']:
             raise ValueError(f'Unrecognized state: {state!r}')
@@ -93,44 +95,40 @@ class PreparedEnv:
 
         print(repr(('report_status', context, state, description, target_url)), file=sys.stderr)
 
-        payload = {
-            'state': state,
-            'description': description,
-            'context': context,
-        }
+        payload = {'state': state, 'description': description, 'context': context}
         if target_url is not None:
             payload['target_url'] = target_url
 
-        url = "https://api.github.com/repos/{}/{}/statuses/{}?access_token={}".format(
-            self.repository.organization,
-            self.repository.name,
-            self.actual_commit_id,
-            self.repository.access_token,
+        url = (
+            f"https://api.github.com/repos/{self.repository.organization}/"
+            f"{self.repository.name}/statuses/{self.actual_commit_id}?"
+            f"access_token={self.repository.access_token}"
         )
 
         response = requests.post(url, json=payload)
 
         if response.status_code != 201:
             raise IOError(
-                'Request failed. Code: {}. Content: {!r}.'.format(
-                    response.status_code, response.content
-                )
+                f'Request failed. Code: {response.status_code}. Content: {response.content!r}.'
             )
 
-    def get_changed_files(self) -> List[str]:
+    def get_changed_files(self) -> list[str]:
         """Get the files changed on one git branch vs another.
 
         Returns:
-            List[str]: File paths of changed files, relative to the git repo
+            list[str]: File paths of changed files, relative to the git repo
                 root.
         """
+        optional_actual_commit_id = [] if self.actual_commit_id is None else [self.actual_commit_id]
         out = shell_tools.output_of(
-            'git',
-            'diff',
-            '--name-only',
-            self.compare_commit_id,
-            self.actual_commit_id,
-            '--',
+            [
+                'git',
+                'diff',
+                '--name-only',
+                self.compare_commit_id,
+                *optional_actual_commit_id,
+                '--',
+            ],
             cwd=self.destination_directory,
         )
         return [e for e in out.split('\n') if e.strip()]

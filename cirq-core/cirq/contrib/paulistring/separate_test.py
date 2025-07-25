@@ -12,22 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import cirq
-from cirq.contrib.paulistring import (
-    convert_and_separate_circuit,
-)
+from cirq.contrib.paulistring import convert_and_separate_circuit
 
 
-def test_toffoli_separate():
+def test_toffoli_separate() -> None:
     q0, q1, q2 = cirq.LineQubit.range(3)
     circuit = cirq.testing.nonoptimal_toffoli_circuit(q0, q1, q2)
 
     c_left, c_right = convert_and_separate_circuit(circuit)
 
     cirq.testing.assert_allclose_up_to_global_phase(
-        circuit.unitary(),
-        (c_left + c_right).unitary(),
-        atol=1e-7,
+        circuit.unitary(), (c_left + c_right).unitary(), atol=1e-7
     )
 
     assert all(isinstance(op, cirq.PauliStringPhasor) for op in c_left.all_operations())

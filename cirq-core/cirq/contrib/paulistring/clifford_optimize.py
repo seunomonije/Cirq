@@ -1,4 +1,4 @@
-# Copyright 2018 The ops Developers
+# Copyright 2018 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,24 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple, cast
+from __future__ import annotations
 
-from cirq import ops, circuits
-from cirq.contrib.paulistring.convert_gate_set import converted_gate_set
+from typing import cast
+
+from cirq import circuits, ops, protocols, transformers
+from cirq.contrib.paulistring.clifford_target_gateset import CliffordTargetGateset
 
 
 def clifford_optimized_circuit(circuit: circuits.Circuit, atol: float = 1e-8) -> circuits.Circuit:
     # Convert to a circuit with SingleQubitCliffordGates,
     # CZs and other ignored gates
-    c_cliff = converted_gate_set(circuit, no_clifford_gates=False, atol=atol)
+    c_cliff = transformers.optimize_for_target_gateset(
+        circuit, gateset=CliffordTargetGateset(atol=atol)
+    )
 
     all_ops = list(c_cliff.all_operations())
 
     def find_merge_point(
-        start_i: int,
-        string_op: ops.PauliStringPhasor,
-        stop_at_cz: bool,
-    ) -> Tuple[int, ops.PauliStringPhasor, int]:
+        start_i: int, string_op: ops.PauliStringPhasor, stop_at_cz: bool
+    ) -> tuple[int, ops.PauliStringPhasor, int]:
         STOP = 0
         CONTINUE = 1
         SKIP = 2
@@ -65,7 +67,7 @@ def clifford_optimized_circuit(circuit: circuits.Circuit, atol: float = 1e-8) ->
                     furthest_i = i
                 break
             if cont_cond == CONTINUE:
-                modified_op = modified_op.pass_operations_over([op], after_to_before=True)
+                modified_op = modified_op.conjugated_by(protocols.inverse(op))
             num_passed_over += 1
             if len(modified_op.pauli_string) == 1:
                 furthest_op = modified_op
@@ -79,9 +81,9 @@ def clifford_optimized_circuit(circuit: circuits.Circuit, atol: float = 1e-8) ->
         for pauli, quarter_turns in reversed(
             cast(ops.SingleQubitCliffordGate, cliff_op.gate).decompose_rotation()
         ):
-            trans = remaining_cliff_gate.transform(pauli)
-            pauli = trans.to
-            quarter_turns *= -1 if trans.flip else 1
+            trans = remaining_cliff_gate.pauli_tuple(pauli)
+            pauli = trans[0]
+            quarter_turns *= -1 if trans[1] else 1
             string_op = ops.PauliStringPhasor(
                 ops.PauliString(pauli(cliff_op.qubits[0])), exponent_neg=quarter_turns / 2
             )
@@ -89,18 +91,13 @@ def clifford_optimized_circuit(circuit: circuits.Circuit, atol: float = 1e-8) ->
             merge_i, merge_op, num_passed = find_merge_point(start_i, string_op, quarter_turns == 2)
             assert merge_i > start_i
             assert len(merge_op.pauli_string) == 1, 'PauliString length != 1'
+            assert not protocols.is_parameterized(merge_op.pauli_string)
+            coefficient = merge_op.pauli_string.coefficient
+            assert isinstance(coefficient, complex)
 
             qubit, pauli = next(iter(merge_op.pauli_string.items()))
             quarter_turns = round(merge_op.exponent_relative * 2)
-            if merge_op.pauli_string.coefficient not in [1, -1]:
-                # TODO: Add support for more general phases.
-                # Github issue: https://github.com/quantumlib/Cirq/issues/2962
-                # Legacy coverage ignore, we need test code that hits this.
-                # coverage: ignore
-                raise NotImplementedError(
-                    'Only +1/-1 pauli string coefficients currently supported'
-                )
-            quarter_turns *= int(merge_op.pauli_string.coefficient.real)
+            quarter_turns *= int(coefficient.real)
             quarter_turns %= 4
             part_cliff_gate = ops.SingleQubitCliffordGate.from_quarter_turns(pauli, quarter_turns)
 
@@ -127,7 +124,7 @@ def clifford_optimized_circuit(circuit: circuits.Circuit, atol: float = 1e-8) ->
                 all_ops.insert(merge_i + 1, part_cliff_gate(qubit))
             elif isinstance(other_op, ops.PauliStringPhasor):
                 # Pass over a non-Clifford gate
-                mod_op = other_op.pass_operations_over([part_cliff_gate(qubit)])
+                mod_op = other_op.conjugated_by([part_cliff_gate(qubit)])
                 all_ops[merge_i] = mod_op
                 all_ops.insert(merge_i + 1, part_cliff_gate(qubit))
             elif merge_i > start_i + 1 and num_passed > 0:
@@ -166,7 +163,7 @@ def clifford_optimized_circuit(circuit: circuits.Circuit, atol: float = 1e-8) ->
             else:
                 # Two CZ gates that share one qubit
                 # Pass through and keep looking
-                continue  # coverage: ignore
+                continue  # pragma: no cover
                 # The above line is covered by test_remove_staggered_czs but the
                 # coverage checker disagrees.
         return 0

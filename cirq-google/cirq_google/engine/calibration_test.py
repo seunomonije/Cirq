@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import datetime
-import pytest
 
 import matplotlib as mpl
+import matplotlib.pyplot as plt
+import pytest
 from google.protobuf.text_format import Merge
 
 import cirq
@@ -191,9 +194,10 @@ def test_calibration_heatmap():
         cg.Calibration(multi_qubit_data).heatmap('multi_value')
 
 
+@pytest.mark.usefixtures('closefigures')
 def test_calibration_plot_histograms():
     calibration = cg.Calibration(_CALIBRATION_DATA)
-    _, ax = mpl.pyplot.subplots(1, 1)
+    _, ax = plt.subplots(1, 1)
     calibration.plot_histograms(['t1', 'two_qubit_xeb'], ax, labels=['T1', 'XEB'])
     assert len(ax.get_lines()) == 4
 
@@ -208,6 +212,7 @@ def test_calibration_plot_histograms():
         cg.Calibration(multi_qubit_data).plot_histograms('multi_value')
 
 
+@pytest.mark.usefixtures('closefigures')
 def test_calibration_plot():
     calibration = cg.Calibration(_CALIBRATION_DATA)
     _, axs = calibration.plot('two_qubit_xeb')

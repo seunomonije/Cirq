@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,9 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import numpy as np
 import pytest
 
 import cirq
+from cirq.devices.grid_qubit_test import _test_qid_pickled_hash
 
 
 def test_init():
@@ -35,8 +39,8 @@ def test_eq():
 
 
 def test_str():
-    assert str(cirq.LineQubit(5)) == '5'
-    assert str(cirq.LineQid(5, dimension=3)) == '5 (d=3)'
+    assert str(cirq.LineQubit(5)) == 'q(5)'
+    assert str(cirq.LineQid(5, dimension=3)) == 'q(5) (d=3)'
 
 
 def test_repr():
@@ -46,10 +50,7 @@ def test_repr():
 
 def test_cmp():
     order = cirq.testing.OrderTester()
-    order.add_ascending_equivalence_group(
-        cirq.LineQubit(0),
-        cirq.LineQid(0, 2),
-    )
+    order.add_ascending_equivalence_group(cirq.LineQubit(0), cirq.LineQid(0, 2))
     order.add_ascending(
         cirq.LineQid(0, dimension=3),
         cirq.LineQid(1, dimension=1),
@@ -68,6 +69,24 @@ def test_cmp_failure():
         _ = 0 < cirq.LineQid(1, 3)
     with pytest.raises(TypeError, match='not supported between instances'):
         _ = cirq.LineQid(1, 3) < 0
+
+
+def test_line_qubit_pickled_hash():
+    # Use a large number that is unlikely to be used by any other tests.
+    x = 1234567891011
+    q_bad = cirq.LineQubit(x)
+    cirq.LineQubit._cache.pop(x)
+    q = cirq.LineQubit(x)
+    _test_qid_pickled_hash(q, q_bad)
+
+
+def test_line_qid_pickled_hash():
+    # Use a large number that is unlikely to be used by any other tests.
+    x = 1234567891011
+    q_bad = cirq.LineQid(x, dimension=3)
+    cirq.LineQid._cache.pop((x, 3))
+    q = cirq.LineQid(x, dimension=3)
+    _test_qid_pickled_hash(q, q_bad)
 
 
 def test_is_adjacent():
@@ -111,10 +130,7 @@ def test_range():
 def test_qid_range():
     assert cirq.LineQid.range(0, dimension=3) == []
     assert cirq.LineQid.range(1, dimension=3) == [cirq.LineQid(0, 3)]
-    assert cirq.LineQid.range(2, dimension=3) == [
-        cirq.LineQid(0, 3),
-        cirq.LineQid(1, 3),
-    ]
+    assert cirq.LineQid.range(2, dimension=3) == [cirq.LineQid(0, 3), cirq.LineQid(1, 3)]
     assert cirq.LineQid.range(5, dimension=3) == [
         cirq.LineQid(0, 3),
         cirq.LineQid(1, 3),
@@ -131,15 +147,9 @@ def test_qid_range():
         cirq.LineQid(3, 4),
     ]
 
-    assert cirq.LineQid.range(3, 1, -1, dimension=1) == [
-        cirq.LineQid(3, 1),
-        cirq.LineQid(2, 1),
-    ]
+    assert cirq.LineQid.range(3, 1, -1, dimension=1) == [cirq.LineQid(3, 1), cirq.LineQid(2, 1)]
     assert cirq.LineQid.range(3, 5, -1, dimension=2) == []
-    assert cirq.LineQid.range(1, 5, 2, dimension=2) == [
-        cirq.LineQid(1, 2),
-        cirq.LineQid(3, 2),
-    ]
+    assert cirq.LineQid.range(1, 5, 2, dimension=2) == [cirq.LineQid(1, 2), cirq.LineQid(3, 2)]
 
 
 def test_for_qid_shape():
@@ -213,15 +223,8 @@ def test_neg():
 
 
 def test_json_dict():
-    assert cirq.LineQubit(5)._json_dict_() == {
-        'cirq_type': 'LineQubit',
-        'x': 5,
-    }
-    assert cirq.LineQid(5, 3)._json_dict_() == {
-        'cirq_type': 'LineQid',
-        'x': 5,
-        'dimension': 3,
-    }
+    assert cirq.LineQubit(5)._json_dict_() == {'x': 5}
+    assert cirq.LineQid(5, 3)._json_dict_() == {'x': 5, 'dimension': 3}
 
 
 def test_for_gate():
@@ -261,11 +264,18 @@ def test_for_gate():
 
 
 def test_immutable():
-    with pytest.raises(AttributeError, match="can't set attribute"):
+    # Match one of two strings. The second one is message returned since python 3.11.
+    with pytest.raises(
+        AttributeError,
+        match="(can't set attribute)|(property 'x' of 'LineQubit' object has no setter)",
+    ):
         q = cirq.LineQubit(5)
         q.x = 6
 
-    with pytest.raises(AttributeError, match="can't set attribute"):
+    with pytest.raises(
+        AttributeError,
+        match="(can't set attribute)|(property 'x' of 'LineQid' object has no setter)",
+    ):
         q = cirq.LineQid(5, dimension=4)
         q.x = 6
 
@@ -277,3 +287,28 @@ def test_numeric():
     assert isinstance(int(cirq.LineQubit(x=5)), int)
     assert isinstance(float(cirq.LineQubit(x=5)), float)
     assert isinstance(complex(cirq.LineQubit(x=5)), complex)
+
+
+@pytest.mark.parametrize('dtype', (np.int8, np.int64, float, np.float64))
+def test_numpy_index(dtype):
+    np5 = dtype(5)
+    q = cirq.LineQubit(np5)
+    assert hash(q) == 5
+    assert q.x == 5
+    assert q.dimension == 2
+    assert isinstance(q.dimension, int)
+
+    q = cirq.LineQid(np5, dtype(3))
+    hash(q)  # doesn't throw
+    assert q.x == 5
+    assert q.dimension == 3
+    assert isinstance(q.dimension, int)
+
+
+@pytest.mark.parametrize('dtype', (float, np.float64))
+def test_non_integer_index(dtype):
+    # Not supported type-wise, but is used in practice, so behavior needs to be preserved.
+    q = cirq.LineQubit(dtype(5.5))
+    assert q.x == 5.5
+    assert q.x == dtype(5.5)
+    assert isinstance(q.x, dtype)

@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import abc
+from typing import NoReturn
+
 import pytest
 
 from cirq import ABCMetaImplementAnyOneOf, alternative
@@ -21,7 +25,7 @@ from cirq import ABCMetaImplementAnyOneOf, alternative
 def test_regular_abstract():
     class RegularAbc(metaclass=ABCMetaImplementAnyOneOf):
         @abc.abstractmethod
-        def my_method(self):
+        def my_method(self) -> str:
             """Docstring."""
 
     with pytest.raises(TypeError, match='abstract'):
@@ -38,11 +42,11 @@ def test_single_alternative():
             """my_method doc."""
 
         @abc.abstractmethod
-        def alt(self):
+        def alt(self) -> str:
             pass
 
     class SingleAlternativeChild(SingleAlternative):
-        def alt(self):
+        def alt(self) -> str:
             return 'alt'
 
     class SingleAlternativeOverride(SingleAlternative):
@@ -80,22 +84,22 @@ def test_doc_string():
             """Default implementation."""
 
         @alternative(requires='alt', implementation=_default_impl)
-        def my_method(self, arg, kw=99):
+        def my_method(self, arg, kw=99) -> None:
             """my_method doc."""
 
         @abc.abstractmethod
-        def alt(self):
+        def alt(self) -> None:
             pass
 
     class SingleAlternativeChild(SingleAlternative):
-        def alt(self):
+        def alt(self) -> None:
             """Alternative method."""
 
     class SingleAlternativeOverride(SingleAlternative):
-        def my_method(self, arg, kw=99):
+        def my_method(self, arg, kw=99) -> None:
             """my_method override."""
 
-        def alt(self):
+        def alt(self) -> None:
             """Unneeded alternative method."""
 
     assert SingleAlternative.my_method.__doc__ == 'my_method doc.'
@@ -138,7 +142,7 @@ def test_classcell_in_namespace():
     class _(metaclass=ABCMetaImplementAnyOneOf):
         def other_method(self):
             # Triggers __classcell__ to be added to the class namespace
-            super()  # coverage: ignore
+            super()  # pragma: no cover
 
 
 def test_two_alternatives():
@@ -151,33 +155,34 @@ def test_two_alternatives():
 
         @alternative(requires='alt1', implementation=_default_impl1)
         @alternative(requires='alt2', implementation=_default_impl2)
-        def my_method(self, arg, kw=99):
+        def my_method(self, arg, kw=99) -> str:
             """Docstring."""
+            raise NotImplementedError
 
         @abc.abstractmethod
-        def alt1(self):
+        def alt1(self) -> str | None:
             pass
 
         @abc.abstractmethod
-        def alt2(self):
+        def alt2(self) -> str | None:
             pass
 
     class TwoAlternativesChild(TwoAlternatives):
-        def alt1(self):
+        def alt1(self) -> str:
             return 'alt1'
 
-        def alt2(self):
-            raise RuntimeError  # coverage: ignore
+        def alt2(self) -> NoReturn:
+            raise RuntimeError  # pragma: no cover
 
     class TwoAlternativesOverride(TwoAlternatives):
-        def my_method(self, arg, kw=99):
+        def my_method(self, arg, kw=99) -> str:
             return 'override'
 
-        def alt1(self):
-            raise RuntimeError  # coverage: ignore
+        def alt1(self) -> NoReturn:
+            raise RuntimeError  # pragma: no cover
 
-        def alt2(self):
-            raise RuntimeError  # coverage: ignore
+        def alt2(self) -> NoReturn:
+            raise RuntimeError  # pragma: no cover
 
     class TwoAlternativesForceSecond(TwoAlternatives):
         def _do_alt1_with_my_method(self):

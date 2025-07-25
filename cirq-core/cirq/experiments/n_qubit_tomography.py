@@ -17,7 +17,10 @@ different pre-measurement rotations.
 The code is designed to be modular with regards to data collection
 so that occurs outside of the StateTomographyExperiment class.
 """
-from typing import List, Optional, Sequence, Tuple, TYPE_CHECKING
+
+from __future__ import annotations
+
+from typing import Sequence, TYPE_CHECKING
 
 import numpy as np
 import sympy
@@ -48,9 +51,7 @@ class StateTomographyExperiment:
     """
 
     def __init__(
-        self,
-        qubits: Sequence['cirq.Qid'],
-        prerotations: Optional[Sequence[Tuple[float, float]]] = None,
+        self, qubits: Sequence[cirq.Qid], prerotations: Sequence[tuple[float, float]] | None = None
     ):
         """Initializes the rotation protocol and matrix for system.
 
@@ -69,8 +70,8 @@ class StateTomographyExperiment:
 
         phase_exp_vals, exp_vals = zip(*prerotations)
 
-        operations: List['cirq.Operation'] = []
-        sweeps: List['cirq.Sweep'] = []
+        operations: list[cirq.Operation] = []
+        sweeps: list[cirq.Sweep] = []
         for i, qubit in enumerate(qubits):
             phase_exp = sympy.Symbol(f'phase_exp_{i}')
             exp = sympy.Symbol(f'exp_{i}')
@@ -82,10 +83,7 @@ class StateTomographyExperiment:
         self.rot_sweep = study.Product(*sweeps)
         self.mat = self._make_state_tomography_matrix(qubits)
 
-    def _make_state_tomography_matrix(
-        self,
-        qubits: Sequence['cirq.Qid'],
-    ) -> np.ndarray:
+    def _make_state_tomography_matrix(self, qubits: Sequence[cirq.Qid]) -> np.ndarray:
         """Gets the matrix used for solving the linear system of the tomography.
 
         Args:
@@ -98,7 +96,7 @@ class StateTomographyExperiment:
             rotation sequence and bit string outcome for that rotation sequence.
         """
         num_rots = len(self.rot_sweep)
-        num_states = 2 ** self.num_qubits
+        num_states = 2**self.num_qubits
 
         # Unitary matrices of each rotation circuit.
         unitaries = np.array(
@@ -128,16 +126,16 @@ class StateTomographyExperiment:
         probs = counts / np.sum(counts, axis=1)[:, np.newaxis]
         # use least squares to get solution.
         c, _, _, _ = np.linalg.lstsq(self.mat, np.asarray(probs).flat, rcond=-1)
-        rho = c.reshape((2 ** self.num_qubits, 2 ** self.num_qubits))
+        rho = c.reshape((2**self.num_qubits, 2**self.num_qubits))
         return TomographyResult(rho)
 
 
 def state_tomography(
-    sampler: 'cirq.Sampler',
-    qubits: Sequence['cirq.Qid'],
-    circuit: 'cirq.Circuit',
+    sampler: cirq.Sampler,
+    qubits: Sequence[cirq.Qid],
+    circuit: cirq.Circuit,
     repetitions: int = 1000,
-    prerotations: Sequence[Tuple[float, float]] = None,
+    prerotations: Sequence[tuple[float, float]] | None = None,
 ) -> TomographyResult:
     """This performs n qubit tomography on a cirq circuit
 
@@ -169,11 +167,11 @@ def state_tomography(
 
 
 def get_state_tomography_data(
-    sampler: 'cirq.Sampler',
-    qubits: Sequence['cirq.Qid'],
-    circuit: 'cirq.Circuit',
-    rot_circuit: 'cirq.Circuit',
-    rot_sweep: 'cirq.Sweep',
+    sampler: cirq.Sampler,
+    qubits: Sequence[cirq.Qid],
+    circuit: cirq.Circuit,
+    rot_circuit: cirq.Circuit,
+    rot_sweep: cirq.Sweep,
     repetitions: int = 1000,
 ) -> np.ndarray:
     """Gets the data for each rotation string added to the circuit.

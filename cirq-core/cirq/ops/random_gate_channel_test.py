@@ -11,6 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import numpy as np
 import pytest
 import sympy
@@ -18,7 +21,7 @@ import sympy
 import cirq
 
 
-def test_init():
+def test_init() -> None:
     p = cirq.RandomGateChannel(sub_gate=cirq.X, probability=0.5)
     assert p.sub_gate is cirq.X
     assert p.probability == 0.5
@@ -29,7 +32,7 @@ def test_init():
         _ = cirq.RandomGateChannel(sub_gate=cirq.X, probability=-1)
 
 
-def test_eq():
+def test_eq() -> None:
     eq = cirq.testing.EqualsTester()
     q = cirq.LineQubit(0)
 
@@ -44,16 +47,11 @@ def test_eq():
     # `with_probability(1)` doesn't wrap
     eq.add_equality_group(cirq.X, cirq.X.with_probability(1))
     eq.add_equality_group(
-        cirq.X.with_probability(1).on(q),
-        cirq.X.on(q).with_probability(1),
-        cirq.X(q),
+        cirq.X.with_probability(1).on(q), cirq.X.on(q).with_probability(1), cirq.X(q)
     )
 
     # `with_probability` with `on`.
-    eq.add_equality_group(
-        cirq.X.with_probability(0.5).on(q),
-        cirq.X.on(q).with_probability(0.5),
-    )
+    eq.add_equality_group(cirq.X.with_probability(0.5).on(q), cirq.X.on(q).with_probability(0.5))
 
     # Flattening.
     eq.add_equality_group(
@@ -66,34 +64,32 @@ def test_eq():
     )
 
     # Supports approximate equality.
-    assert cirq.approx_eq(
-        cirq.X.with_probability(0.5),
-        cirq.X.with_probability(0.50001),
-        atol=1e-2,
-    )
+    assert cirq.approx_eq(cirq.X.with_probability(0.5), cirq.X.with_probability(0.50001), atol=1e-2)
     assert not cirq.approx_eq(
-        cirq.X.with_probability(0.5),
-        cirq.X.with_probability(0.50001),
-        atol=1e-8,
+        cirq.X.with_probability(0.5), cirq.X.with_probability(0.50001), atol=1e-8
     )
 
 
-def test_consistent_protocols():
+def test_consistent_protocols() -> None:
     cirq.testing.assert_implements_consistent_protocols(
-        cirq.RandomGateChannel(sub_gate=cirq.X, probability=1)
+        cirq.RandomGateChannel(sub_gate=cirq.X, probability=1),
+        ignore_decompose_to_default_gateset=True,
     )
     cirq.testing.assert_implements_consistent_protocols(
-        cirq.RandomGateChannel(sub_gate=cirq.X, probability=0)
+        cirq.RandomGateChannel(sub_gate=cirq.X, probability=0),
+        ignore_decompose_to_default_gateset=True,
     )
     cirq.testing.assert_implements_consistent_protocols(
-        cirq.RandomGateChannel(sub_gate=cirq.X, probability=sympy.Symbol('x') / 2)
+        cirq.RandomGateChannel(sub_gate=cirq.X, probability=sympy.Symbol('x') / 2),
+        ignore_decompose_to_default_gateset=True,
     )
     cirq.testing.assert_implements_consistent_protocols(
-        cirq.RandomGateChannel(sub_gate=cirq.X, probability=0.5)
+        cirq.RandomGateChannel(sub_gate=cirq.X, probability=0.5),
+        ignore_decompose_to_default_gateset=True,
     )
 
 
-def test_diagram():
+def test_diagram() -> None:
     class NoDetailsGate(cirq.Gate):
         def num_qubits(self) -> int:
             raise NotImplementedError()
@@ -122,7 +118,7 @@ def test_diagram():
 
 
 @pytest.mark.parametrize('resolve_fn', [cirq.resolve_parameters, cirq.resolve_parameters_once])
-def test_parameterized(resolve_fn):
+def test_parameterized(resolve_fn) -> None:
     op = cirq.X.with_probability(sympy.Symbol('x'))
     assert cirq.is_parameterized(op)
     assert not cirq.has_kraus(op)
@@ -135,7 +131,7 @@ def test_parameterized(resolve_fn):
     assert cirq.has_mixture(op2)
 
 
-def test_mixture():
+def test_mixture() -> None:
     class NoDetailsGate(cirq.Gate):
         def num_qubits(self) -> int:
             return 1
@@ -157,13 +153,7 @@ def test_mixture():
     assert {p for p, _ in m} == {7 / 8, 1 / 32, 3 / 32}
 
 
-def assert_channel_sums_to_identity(val):
-    m = cirq.kraus(val)
-    s = sum(np.conj(e.T) @ e for e in m)
-    np.testing.assert_allclose(s, np.eye(np.prod(cirq.qid_shape(val), dtype=np.int64)), atol=1e-8)
-
-
-def test_channel():
+def test_channel() -> None:
     class NoDetailsGate(cirq.Gate):
         def num_qubits(self) -> int:
             return 1
@@ -171,61 +161,41 @@ def test_channel():
     assert not cirq.has_kraus(NoDetailsGate().with_probability(0.5))
     assert cirq.kraus(NoDetailsGate().with_probability(0.5), None) is None
     assert cirq.kraus(cirq.X.with_probability(sympy.Symbol('x')), None) is None
-    assert_channel_sums_to_identity(cirq.X.with_probability(0.25))
-    assert_channel_sums_to_identity(cirq.bit_flip(0.75).with_probability(0.25))
-    assert_channel_sums_to_identity(cirq.amplitude_damp(0.75).with_probability(0.25))
+    cirq.testing.assert_consistent_channel(cirq.X.with_probability(0.25))
+    cirq.testing.assert_consistent_channel(cirq.bit_flip(0.75).with_probability(0.25))
+    cirq.testing.assert_consistent_channel(cirq.amplitude_damp(0.75).with_probability(0.25))
+
+    cirq.testing.assert_consistent_mixture(cirq.X.with_probability(0.25))
+    cirq.testing.assert_consistent_mixture(cirq.bit_flip(0.75).with_probability(0.25))
+    assert not cirq.has_mixture(cirq.amplitude_damp(0.75).with_probability(0.25))
 
     m = cirq.kraus(cirq.X.with_probability(0.25))
     assert len(m) == 2
-    np.testing.assert_allclose(
-        m[0],
-        cirq.unitary(cirq.X) * np.sqrt(0.25),
-        atol=1e-8,
-    )
-    np.testing.assert_allclose(
-        m[1],
-        cirq.unitary(cirq.I) * np.sqrt(0.75),
-        atol=1e-8,
-    )
+    np.testing.assert_allclose(m[0], cirq.unitary(cirq.X) * np.sqrt(0.25), atol=1e-8)
+    np.testing.assert_allclose(m[1], cirq.unitary(cirq.I) * np.sqrt(0.75), atol=1e-8)
 
     m = cirq.kraus(cirq.bit_flip(0.75).with_probability(0.25))
     assert len(m) == 3
     np.testing.assert_allclose(
-        m[0],
-        cirq.unitary(cirq.I) * np.sqrt(0.25) * np.sqrt(0.25),
-        atol=1e-8,
+        m[0], cirq.unitary(cirq.I) * np.sqrt(0.25) * np.sqrt(0.25), atol=1e-8
     )
     np.testing.assert_allclose(
-        m[1],
-        cirq.unitary(cirq.X) * np.sqrt(0.25) * np.sqrt(0.75),
-        atol=1e-8,
+        m[1], cirq.unitary(cirq.X) * np.sqrt(0.25) * np.sqrt(0.75), atol=1e-8
     )
-    np.testing.assert_allclose(
-        m[2],
-        cirq.unitary(cirq.I) * np.sqrt(0.75),
-        atol=1e-8,
-    )
+    np.testing.assert_allclose(m[2], cirq.unitary(cirq.I) * np.sqrt(0.75), atol=1e-8)
 
     m = cirq.kraus(cirq.amplitude_damp(0.75).with_probability(0.25))
     assert len(m) == 3
     np.testing.assert_allclose(
-        m[0],
-        np.array([[1, 0], [0, np.sqrt(1 - 0.75)]]) * np.sqrt(0.25),
-        atol=1e-8,
+        m[0], np.array([[1, 0], [0, np.sqrt(1 - 0.75)]]) * np.sqrt(0.25), atol=1e-8
     )
     np.testing.assert_allclose(
-        m[1],
-        np.array([[0, np.sqrt(0.75)], [0, 0]]) * np.sqrt(0.25),
-        atol=1e-8,
+        m[1], np.array([[0, np.sqrt(0.75)], [0, 0]]) * np.sqrt(0.25), atol=1e-8
     )
-    np.testing.assert_allclose(
-        m[2],
-        cirq.unitary(cirq.I) * np.sqrt(0.75),
-        atol=1e-8,
-    )
+    np.testing.assert_allclose(m[2], cirq.unitary(cirq.I) * np.sqrt(0.75), atol=1e-8)
 
 
-def test_trace_distance():
+def test_trace_distance() -> None:
     t = cirq.trace_distance_bound
     assert 0.999 <= t(cirq.X.with_probability(sympy.Symbol('x')))
     assert t(cirq.X.with_probability(0)) == 0
@@ -234,25 +204,25 @@ def test_trace_distance():
     assert 0.35 <= t(cirq.S.with_probability(0.5)) <= 0.36
 
 
-def test_str():
+def test_str() -> None:
     assert str(cirq.X.with_probability(0.5)) == 'X[prob=0.5]'
 
 
-def test_stabilizer_supports_probability():
+def test_stabilizer_supports_probability() -> None:
     q = cirq.LineQubit(0)
     c = cirq.Circuit(cirq.X(q).with_probability(0.5), cirq.measure(q, key='m'))
     m = np.sum(cirq.StabilizerSampler().sample(c, repetitions=100)['m'])
     assert 5 < m < 95
 
 
-def test_unsupported_stabilizer_safety():
-    from cirq.protocols.act_on_protocol_test import DummyActOnArgs
+def test_unsupported_stabilizer_safety() -> None:
+    from cirq.protocols.act_on_protocol_test import ExampleSimulationState
 
     with pytest.raises(TypeError, match="act_on"):
         for _ in range(100):
-            cirq.act_on(cirq.X.with_probability(0.5), DummyActOnArgs(), qubits=())
+            cirq.act_on(cirq.X.with_probability(0.5), ExampleSimulationState(), qubits=())
     with pytest.raises(TypeError, match="act_on"):
-        cirq.act_on(cirq.X.with_probability(sympy.Symbol('x')), DummyActOnArgs(), qubits=())
+        cirq.act_on(cirq.X.with_probability(sympy.Symbol('x')), ExampleSimulationState(), qubits=())
 
     q = cirq.LineQubit(0)
     c = cirq.Circuit((cirq.X(q) ** 0.25).with_probability(0.5), cirq.measure(q, key='m'))

@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,31 +14,27 @@
 """This module defines building blocks for parsing Quirk circuits."""
 
 from cirq.interop.quirk.cells.all_cells import (
-    generate_all_quirk_cell_makers,
+    generate_all_quirk_cell_makers as generate_all_quirk_cell_makers,
 )
 
 from cirq.interop.quirk.cells.cell import (
-    Cell,
-    CellMaker,
-    CellMakerArgs,
-    ExplicitOperationsCell,
+    Cell as Cell,
+    CellMaker as CellMaker,
+    CellMakerArgs as CellMakerArgs,
+    ExplicitOperationsCell as ExplicitOperationsCell,
 )
 
-from cirq.interop.quirk.cells.composite_cell import (
-    CompositeCell,
-)
+from cirq.interop.quirk.cells.composite_cell import CompositeCell as CompositeCell
 
 from cirq.interop.quirk.cells.qubit_permutation_cells import (
-    QuirkQubitPermutationGate,
+    QuirkQubitPermutationGate as QuirkQubitPermutationGate,
 )
 
-from cirq.interop.quirk.cells.arithmetic_cells import (
-    QuirkArithmeticOperation,
-)
+from cirq.interop.quirk.cells.arithmetic_cells import QuirkArithmeticGate as QuirkArithmeticGate
 
 from cirq.interop.quirk.cells.input_rotation_cells import (
-    QuirkInputRotationOperation,
+    QuirkInputRotationOperation as QuirkInputRotationOperation,
 )
 
 import cirq.interop.quirk.cells.swap_cell
-import cirq.interop.quirk.cells.control_cells
+import cirq.interop.quirk.cells.control_cells  # noqa: F401

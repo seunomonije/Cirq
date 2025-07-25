@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#         https://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,23 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from typing import Iterable
 from unittest import mock
+
 import pytest
 
 import cirq
-import cirq_google as cg
 from cirq_google.line.placement import greedy
-from cirq_google.line.placement.sequence import (
-    GridQubitLineTuple,
-    NotFoundError,
-)
+from cirq_google.line.placement.sequence import GridQubitLineTuple, NotFoundError
+
+
+class FakeDevice(cirq.Device):
+    def __init__(self, qubits):
+        self.qubits = qubits
+
+    @property
+    def metadata(self):
+        return cirq.DeviceMetadata(self.qubits, None)
 
 
 def _create_device(qubits: Iterable[cirq.GridQubit]):
-    return cg.XmonDevice(
-        cirq.Duration(nanos=0), cirq.Duration(nanos=0), cirq.Duration(nanos=0), qubits
-    )
+    return FakeDevice(qubits)
 
 
 def test_greedy_sequence_search_fails_on_wrong_start_qubit():
@@ -75,9 +81,10 @@ def test_find_sequence_calls_expand_sequence():
     qubits = [q00, q01, q02]
     start = q01
     search = greedy.GreedySequenceSearch(_create_device(qubits), start)
-    with mock.patch.object(search, '_sequence_search') as sequence_search, mock.patch.object(
-        search, '_expand_sequence'
-    ) as expand_sequence:
+    with (
+        mock.patch.object(search, '_sequence_search') as sequence_search,
+        mock.patch.object(search, '_expand_sequence') as expand_sequence,
+    ):
         head = [q01, q00]
         tail = [q01, q02]
         sequence_search.side_effect = [tail, head]

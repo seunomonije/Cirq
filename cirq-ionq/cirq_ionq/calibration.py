@@ -1,4 +1,5 @@
 # Copyright 2020 The Cirq Developers
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -11,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import datetime
+from __future__ import annotations
 
-from typing import Optional, Set, Tuple
+import datetime
 
 import cirq
 
@@ -32,7 +33,7 @@ class Calibration:
         """The name of the QPU."""
         return self._calibration_dict['target']
 
-    def calibration_time(self, tz: Optional[datetime.tzinfo] = None) -> datetime.datetime:
+    def calibration_time(self, tz: datetime.tzinfo | None = None) -> datetime.datetime:
         """Return a python datetime object for the calibration time.
 
         Args:
@@ -52,10 +53,10 @@ class Calibration:
         return self._calibration_dict['fidelity']
 
     def timings(self) -> dict:
-        """Returns the gate, measurement, and reseting timings."""
+        """Returns the gate, measurement, and resetting timings."""
         return self._calibration_dict['timing']
 
-    def connectivity(self) -> Set[Tuple[cirq.LineQubit, cirq.LineQubit]]:
+    def connectivity(self) -> set[tuple[cirq.LineQubit, cirq.LineQubit]]:
         """Returns which qubits and can interact with which.
 
         Returns:

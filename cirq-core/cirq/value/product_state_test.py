@@ -1,3 +1,7 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
+
+from __future__ import annotations
+
 import numpy as np
 import pytest
 
@@ -6,14 +10,7 @@ import cirq
 
 def test_name():
     names = [str(state) for state in cirq.PAULI_STATES]
-    assert names == [
-        '+X',
-        '-X',
-        '+Y',
-        '-Y',
-        '+Z',
-        '-Z',
-    ]
+    assert names == ['+X', '-X', '+Y', '-Y', '+Z', '-Z']
 
 
 def test_repr():
@@ -66,7 +63,7 @@ def test_projector_2():
 def test_oneq_state():
     q0, q1 = cirq.LineQubit.range(2)
     st0 = cirq.KET_PLUS(q0)
-    assert str(st0) == '+X(0)'
+    assert str(st0) == '+X(q(0))'
 
     st1 = cirq.KET_PLUS(q1)
     assert st0 != st1
@@ -81,17 +78,17 @@ def test_product_state():
     plus1 = cirq.KET_PLUS(q1)
 
     ps = plus0 * plus1
-    assert str(plus0) == "+X(0)"
-    assert str(plus1) == "+X(1)"
-    assert str(ps) == "+X(0) * +X(1)"
+    assert str(plus0) == "+X(q(0))"
+    assert str(plus1) == "+X(q(1))"
+    assert str(ps) == "+X(q(0)) * +X(q(1))"
 
     ps *= cirq.KET_ONE(q2)
-    assert str(ps) == "+X(0) * +X(1) * -Z(2)"
+    assert str(ps) == "+X(q(0)) * +X(q(1)) * -Z(q(2))"
 
     with pytest.raises(ValueError) as e:
         # Re-use q2
         ps *= cirq.KET_PLUS(q2)
-    assert e.match(r'.*both contain factors for these qubits: ' r'\[cirq.LineQubit\(2\)\]')
+    assert e.match(r'.*both contain factors for these qubits: \[cirq.LineQubit\(2\)\]')
 
     ps2 = eval(repr(ps))
     assert ps == ps2
@@ -119,11 +116,7 @@ def test_product_iter():
     q0, q1, q2 = cirq.LineQubit.range(3)
     ps = cirq.KET_PLUS(q0) * cirq.KET_PLUS(q1) * cirq.KET_ZERO(q2)
 
-    should_be = [
-        (q0, cirq.KET_PLUS),
-        (q1, cirq.KET_PLUS),
-        (q2, cirq.KET_ZERO),
-    ]
+    should_be = [(q0, cirq.KET_PLUS), (q1, cirq.KET_PLUS), (q2, cirq.KET_ZERO)]
     assert list(ps) == should_be
     assert len(ps) == 3
 
@@ -179,13 +172,7 @@ def test_tp_projector():
     np.testing.assert_allclose(rho, p01)
 
     ppp = (cirq.KET_PLUS(q0) * cirq.KET_PLUS(q1)).projector()
-    rho = cirq.final_density_matrix(
-        cirq.Circuit(
-            [
-                cirq.H.on_each(q0, q1),
-            ]
-        )
-    )
+    rho = cirq.final_density_matrix(cirq.Circuit([cirq.H.on_each(q0, q1)]))
     np.testing.assert_allclose(rho, ppp, atol=1e-7)
 
     ppm = (cirq.KET_PLUS(q0) * cirq.KET_MINUS(q1)).projector()

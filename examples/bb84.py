@@ -1,4 +1,5 @@
-""" Example program to demonstrate BB84 QKD Protocol
+# pylint: disable=wrong-or-nonexistent-copyright-notice
+"""Example program to demonstrate BB84 QKD Protocol
 
 BB84 [1] is a quantum key distribution (QKD) protocol developed by
 Charles Bennett and Gilles Brassard in 1984. It was the first quantum
@@ -105,13 +106,18 @@ Expected key:   010010
 Actual key:     111011
 
 """
+
+from __future__ import annotations
+
 import numpy as np
+
 import cirq
 
 
 def main(num_qubits=8):
     # Setup non-eavesdropped protocol
     print('Simulating non-eavesdropped protocol')
+    qubits = cirq.LineQubit.range(num_qubits)
     alice_basis = [np.random.randint(0, 2) for _ in range(num_qubits)]
     alice_state = [np.random.randint(0, 2) for _ in range(num_qubits)]
     bob_basis = [np.random.randint(0, 2) for _ in range(num_qubits)]
@@ -126,7 +132,7 @@ def main(num_qubits=8):
     repetitions = 1
 
     result = cirq.Simulator().run(program=circuit, repetitions=repetitions)
-    result_bitstring = bitstring([int(result.measurements[str(i)]) for i in range(num_qubits)])
+    result_bitstring = bitstring([result.measurements[str(q)].item() for q in qubits])
 
     # Take only qubits where bases match
     obtained_key = ''.join(
@@ -156,14 +162,14 @@ def main(num_qubits=8):
     # Run simulations.
     repetitions = 1
     result = cirq.Simulator().run(program=alice_eve_circuit, repetitions=repetitions)
-    eve_state = [int(result.measurements[str(i)]) for i in range(num_qubits)]
+    eve_state = [result.measurements[str(q)].item() for q in qubits]
 
     eve_bob_circuit = make_bb84_circ(num_qubits, eve_basis, bob_basis, eve_state)
 
     # Run simulations.
     repetitions = 1
     result = cirq.Simulator().run(program=eve_bob_circuit, repetitions=repetitions)
-    result_bitstring = bitstring([int(result.measurements[str(i)]) for i in range(num_qubits)])
+    result_bitstring = bitstring([result.measurements[str(q)].item() for q in qubits])
 
     # Take only qubits where bases match
     obtained_key = ''.join(
@@ -179,7 +185,7 @@ def main(num_qubits=8):
 
 def make_bb84_circ(num_qubits, alice_basis, bob_basis, alice_state):
 
-    qubits = [cirq.LineQubit(i) for i in range(num_qubits)]
+    qubits = cirq.LineQubit.range(num_qubits)
 
     circuit = cirq.Circuit()
 
@@ -217,9 +223,9 @@ def print_results(alice_basis, bob_basis, alice_state, expected_key, obtained_ke
     alice_basis_str = "".join(['C' if alice_basis[i] == 0 else "H" for i in range(num_qubits)])
     bob_basis_str = "".join(['C' if bob_basis[i] == 0 else "H" for i in range(num_qubits)])
 
-    print('Alice\'s basis:\t{}'.format(alice_basis_str))
-    print('Bob\'s basis:\t{}'.format(bob_basis_str))
-    print('Alice\'s bits:\t{}'.format(bitstring(alice_state)))
+    print(f'Alice\'s basis:\t{alice_basis_str}')
+    print(f'Bob\'s basis:\t{bob_basis_str}')
+    print(f'Alice\'s bits:\t{bitstring(alice_state)}')
     print(f'Bases match::\t{basis_match}')
     print(f'Expected key:\t{expected_key}')
     print(f'Actual key:\t{obtained_key}')

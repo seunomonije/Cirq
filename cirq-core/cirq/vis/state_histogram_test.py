@@ -14,16 +14,19 @@
 
 """Tests for state_histogram."""
 
-import numpy as np
-from matplotlib import pyplot as plt
+from __future__ import annotations
+
 import matplotlib as mpl
+import numpy as np
+import pytest
+from matplotlib import pyplot as plt
 
 import cirq
 from cirq.devices import GridQubit
 from cirq.vis import state_histogram
 
 
-def test_get_state_histogram():
+def test_get_state_histogram() -> None:
     simulator = cirq.Simulator()
 
     q0 = GridQubit(0, 0)
@@ -39,11 +42,10 @@ def test_get_state_histogram():
     np.testing.assert_equal(values_to_plot, expected_values)
 
 
-def test_get_state_histogram_multi_1():
+def test_get_state_histogram_multi_1() -> None:
     qubits = cirq.LineQubit.range(4)
     c = cirq.Circuit(
-        cirq.X.on_each(*qubits[1:]),
-        cirq.measure(*qubits),  # One multi-qubit measurement
+        cirq.X.on_each(*qubits[1:]), cirq.measure(*qubits)  # One multi-qubit measurement
     )
     r = cirq.sample(c, repetitions=5)
     values_to_plot = state_histogram.get_state_histogram(r)
@@ -51,7 +53,7 @@ def test_get_state_histogram_multi_1():
     np.testing.assert_equal(values_to_plot, expected_values)
 
 
-def test_get_state_histogram_multi_2():
+def test_get_state_histogram_multi_2() -> None:
     qubits = cirq.LineQubit.range(4)
     c = cirq.Circuit(
         cirq.X.on_each(*qubits[1:]),
@@ -64,11 +66,11 @@ def test_get_state_histogram_multi_2():
     np.testing.assert_equal(values_to_plot, expected_values)
 
 
-def test_plot_state_histogram_result():
+@pytest.mark.usefixtures('closefigures')
+def test_plot_state_histogram_result() -> None:
     qubits = cirq.LineQubit.range(4)
     c = cirq.Circuit(
-        cirq.X.on_each(*qubits[1:]),
-        cirq.measure(*qubits),  # One multi-qubit measurement
+        cirq.X.on_each(*qubits[1:]), cirq.measure(*qubits)  # One multi-qubit measurement
     )
     r = cirq.sample(c, repetitions=5)
     expected_values = [0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -78,35 +80,22 @@ def test_plot_state_histogram_result():
     for r1, r2 in zip(ax1.get_children(), ax2.get_children()):
         if isinstance(r1, mpl.patches.Rectangle) and isinstance(r2, mpl.patches.Rectangle):
             assert str(r1) == str(r2)
+    # Test default axis
+    state_histogram.plot_state_histogram(expected_values)
 
 
-def test_plot_state_histogram_collection():
+@pytest.mark.usefixtures('closefigures')
+def test_plot_state_histogram_collection() -> None:
     qubits = cirq.LineQubit.range(4)
     c = cirq.Circuit(
-        cirq.X.on_each(*qubits[1:]),
-        cirq.measure(*qubits),  # One multi-qubit measurement
+        cirq.X.on_each(*qubits[1:]), cirq.measure(*qubits)  # One multi-qubit measurement
     )
     r = cirq.sample(c, repetitions=5)
     _, (ax1, ax2) = plt.subplots(1, 2)
-    state_histogram.plot_state_histogram(r.histogram(key='0,1,2,3'), ax1)
+    state_histogram.plot_state_histogram(r.histogram(key='q(0),q(1),q(2),q(3)'), ax1)
     expected_values = [5]
     tick_label = ['7']
     state_histogram.plot_state_histogram(expected_values, ax2, tick_label=tick_label, xlabel=None)
     for r1, r2 in zip(ax1.get_children(), ax2.get_children()):
         if isinstance(r1, mpl.patches.Rectangle) and isinstance(r2, mpl.patches.Rectangle):
             assert str(r1) == str(r2)
-
-
-def test_plot_state_histogram_deprecation():
-    with cirq.testing.assert_deprecated(
-        'cirq.study.visualize.plot_state_histogram was used but is deprecated.\n'
-        'It will be removed in cirq v0.12.\n'
-        'use cirq.vis.plot_state_histogram or cirq.vis.get_state_histogram instead',
-        deadline="v0.12",
-        count=None,  # Another warning is due to matplotlib.
-    ):
-        simulator = cirq.Simulator()
-        q = cirq.NamedQubit("a")
-        circuit = cirq.Circuit([cirq.X(q), cirq.measure(q)])
-        result = simulator.run(program=circuit, repetitions=5)
-        cirq.study.visualize.plot_state_histogram(result)

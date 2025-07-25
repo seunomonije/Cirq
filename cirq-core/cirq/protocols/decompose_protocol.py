@@ -12,28 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import dataclasses
+import inspect
+import itertools
+from collections import defaultdict
+from types import NotImplementedType
 from typing import (
-    TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
     Iterable,
-    List,
-    Optional,
+    Iterator,
     overload,
     Sequence,
-    Tuple,
+    TYPE_CHECKING,
     TypeVar,
     Union,
 )
-from collections import defaultdict
 
-from typing_extensions import Protocol
+from typing_extensions import Protocol, runtime_checkable
 
 from cirq import devices, ops
 from cirq._doc import doc_private
 from cirq.protocols import qid_shape_protocol
-from cirq.type_workarounds import NotImplementedType
 
 if TYPE_CHECKING:
     import cirq
@@ -45,27 +47,62 @@ TError = TypeVar('TError', bound=Exception)
 RaiseTypeErrorIfNotProvided: Any = ([],)
 
 DecomposeResult = Union[None, NotImplementedType, 'cirq.OP_TREE']
-OpDecomposer = Callable[['cirq.Operation'], DecomposeResult]
+
+_CONTEXT_COUNTER = itertools.count()  # Use _reset_context_counter() to reset the counter.
 
 
-def _value_error_describing_bad_operation(op: 'cirq.Operation') -> ValueError:
+@runtime_checkable
+class OpDecomposerWithContext(Protocol):
+    def __call__(
+        self, __op: cirq.Operation, *, context: cirq.DecompositionContext | None = None
+    ) -> DecomposeResult: ...
+
+
+OpDecomposer = Callable[['cirq.Operation'], DecomposeResult] | OpDecomposerWithContext
+
+DECOMPOSE_TARGET_GATESET = ops.Gateset(
+    ops.XPowGate,
+    ops.YPowGate,
+    ops.ZPowGate,
+    ops.CZPowGate,
+    ops.MeasurementGate,
+    ops.GlobalPhaseGate,
+)
+
+
+def _value_error_describing_bad_operation(op: cirq.Operation) -> ValueError:
     return ValueError(f"Operation doesn't satisfy the given `keep` but can't be decomposed: {op!r}")
+
+
+@dataclasses.dataclass(frozen=True)
+class DecompositionContext:
+    """Stores common configurable options for decomposing composite gates into simpler operations.
+
+    Args:
+        qubit_manager: A `cirq.QubitManager` instance to allocate clean / dirty ancilla qubits as
+            part of the decompose protocol.
+        extract_global_phases: If set, will extract the global phases from
+         `DECOMPOSE_TARGET_GATESET` into independent global phase operations.
+    """
+
+    qubit_manager: cirq.QubitManager
+    extract_global_phases: bool = False
+
+    def extracting_global_phases(self) -> DecompositionContext:
+        """Returns a copy with the `extract_global_phases` field set."""
+        return dataclasses.replace(self, extract_global_phases=True)
 
 
 class SupportsDecompose(Protocol):
     """An object that can be decomposed into simpler operations.
 
     All decomposition methods should ultimately terminate on basic 1-qubit and
-    2-qubit gates included by default in Cirq. Cirq does not make any guarantees
-    about what the final gate set is. Currently, decompositions within Cirq
-    happen to converge towards the X, Y, Z, CZ, PhasedX, specified-matrix gates,
-    and others. This set will vary from release to release. Because of this
-    variability, it is important for consumers of decomposition to look for
-    generic properties of gates, such as "two qubit gate with a unitary matrix",
-    instead of specific gate types such as CZ gates (though a consumer is
-    of course free to handle CZ gates in a special way, and consumers can
-    give an `intercepting_decomposer` to `cirq.decompose` that attempts to
-    target a specific gate set).
+    2-qubit gates included by default in Cirq. If a custom decomposition is not
+    specified, Cirq will decompose all operations to XPow/YPow/ZPow/CZPow/Measurement
+    + Global phase gateset. However, the default decomposition in Cirq should be a last resort
+    fallback and it is recommended for consumers of decomposition to either not depend
+    upon a specific target gateset, or give an `intercepting_decomposer` to `cirq.decompose`
+    that attempts to target a specific gate set.
 
     For example, `cirq.TOFFOLI` has a `_decompose_` method that returns a pair
     of Hadamard gates surrounding a `cirq.CCZ`. Although `cirq.CCZ` is not a
@@ -95,6 +132,11 @@ class SupportsDecompose(Protocol):
     def _decompose_(self) -> DecomposeResult:
         pass
 
+    def _decompose_with_context_(
+        self, *, context: DecompositionContext | None = None
+    ) -> DecomposeResult:
+        pass
+
 
 class SupportsDecomposeWithQubits(Protocol):
     """An object that can be decomposed into operations on given qubits.
@@ -115,21 +157,88 @@ class SupportsDecomposeWithQubits(Protocol):
     implements `SupportsDecomposeWithQubits`.
     """
 
-    def _decompose_(self, qubits: Tuple['cirq.Qid', ...]) -> DecomposeResult:
+    def _decompose_(self, qubits: tuple[cirq.Qid, ...]) -> DecomposeResult:
         pass
+
+    def _decompose_with_context_(
+        self, qubits: tuple[cirq.Qid, ...], *, context: DecompositionContext | None = None
+    ) -> DecomposeResult:
+        pass
+
+
+def _try_op_decomposer(
+    val: Any, decomposer: OpDecomposer | None, *, context: DecompositionContext | None = None
+) -> DecomposeResult:
+    if decomposer is None or not isinstance(val, ops.Operation):
+        return None
+    if 'context' in inspect.signature(decomposer).parameters:
+        assert isinstance(decomposer, OpDecomposerWithContext)
+        return decomposer(val, context=context)
+    else:
+        return decomposer(val)
+
+
+@dataclasses.dataclass(frozen=True)
+class _DecomposeArgs:
+    context: DecompositionContext | None
+    intercepting_decomposer: OpDecomposer | None
+    fallback_decomposer: OpDecomposer | None
+    keep: Callable[[cirq.Operation], bool] | None
+    on_stuck_raise: None | Exception | Callable[[cirq.Operation], Exception | None]
+    preserve_structure: bool
+
+
+def _decompose_dfs(item: Any, args: _DecomposeArgs) -> Iterator[cirq.Operation]:
+    from cirq.circuits import CircuitOperation, FrozenCircuit
+
+    if isinstance(item, ops.Operation):
+        item_untagged = item.untagged
+        if args.preserve_structure and isinstance(item_untagged, CircuitOperation):
+            new_fc = FrozenCircuit(_decompose_dfs(item_untagged.circuit, args))
+            yield item_untagged.replace(circuit=new_fc).with_tags(*item.tags)
+            return
+        if args.keep is not None and args.keep(item):
+            yield item
+            return
+
+    decomposed = _try_op_decomposer(item, args.intercepting_decomposer, context=args.context)
+
+    if decomposed is NotImplemented or decomposed is None:
+        decomposed = decompose_once(item, default=None, flatten=False, context=args.context)
+
+    if decomposed is NotImplemented or decomposed is None:
+        decomposed = _try_op_decomposer(item, args.fallback_decomposer, context=args.context)
+
+    if decomposed is NotImplemented or decomposed is None:
+        if not isinstance(item, ops.Operation) and isinstance(item, Iterable):
+            decomposed = item
+
+    if decomposed is NotImplemented or decomposed is None:
+        if args.keep is not None and args.on_stuck_raise is not None:
+            if isinstance(args.on_stuck_raise, Exception):
+                raise args.on_stuck_raise
+            elif callable(args.on_stuck_raise):
+                error = args.on_stuck_raise(item)
+                if error is not None:
+                    raise error
+        yield item
+    else:
+        for val in ops.flatten_to_ops(decomposed):
+            yield from _decompose_dfs(val, args)
 
 
 def decompose(
     val: Any,
     *,
-    intercepting_decomposer: Optional[OpDecomposer] = None,
-    fallback_decomposer: Optional[OpDecomposer] = None,
-    keep: Optional[Callable[['cirq.Operation'], bool]] = None,
-    on_stuck_raise: Union[
-        None, Exception, Callable[['cirq.Operation'], Union[None, Exception]]
-    ] = _value_error_describing_bad_operation,
+    intercepting_decomposer: OpDecomposer | None = None,
+    fallback_decomposer: OpDecomposer | None = None,
+    keep: Callable[[cirq.Operation], bool] | None = None,
+    on_stuck_raise: (
+        None | Exception | Callable[[cirq.Operation], Exception | None]
+    ) = _value_error_describing_bad_operation,
     preserve_structure: bool = False,
-) -> List['cirq.Operation']:
+    context: DecompositionContext | None = None,
+) -> list[cirq.Operation]:
     """Recursively decomposes a value into `cirq.Operation`s meeting a criteria.
 
     Args:
@@ -159,7 +268,9 @@ def decompose(
             unwanted non-decomposable operation.
         preserve_structure: Prevents subcircuits (i.e. `CircuitOperation`s)
             from being decomposed, but decomposes their contents. If this is
-            True, 'intercepting_decomposer' cannot be specified.
+            True, `intercepting_decomposer` cannot be specified.
+        context: Decomposition context specifying common configurable options for
+            controlling the behavior of decompose.
 
     Returns:
         A list of operations that the given value was decomposed into. If
@@ -180,80 +291,50 @@ def decompose(
             that doesn't satisfy the given `keep` predicate.
     """
 
-    if on_stuck_raise is not _value_error_describing_bad_operation and keep is None:
+    if (
+        on_stuck_raise is not _value_error_describing_bad_operation
+        and on_stuck_raise is not None
+        and keep is None
+    ):
         raise ValueError(
             "Must specify 'keep' if specifying 'on_stuck_raise', because it's "
             "not possible to get stuck if you don't have a criteria on what's "
             "acceptable to keep."
         )
 
-    if preserve_structure:
-        return _decompose_preserving_structure(
-            val,
-            intercepting_decomposer=intercepting_decomposer,
-            fallback_decomposer=fallback_decomposer,
-            keep=keep,
-            on_stuck_raise=on_stuck_raise,
-        )
-
-    def try_op_decomposer(val: Any, decomposer: Optional[OpDecomposer]) -> DecomposeResult:
-        if decomposer is None or not isinstance(val, ops.Operation):
-            return None
-        return decomposer(val)
-
-    output = []
-    queue: List[Any] = [val]
-    while queue:
-        item = queue.pop(0)
-        if isinstance(item, ops.Operation) and keep is not None and keep(item):
-            output.append(item)
-            continue
-
-        decomposed = try_op_decomposer(item, intercepting_decomposer)
-
-        if decomposed is NotImplemented or decomposed is None:
-            decomposed = decompose_once(item, default=None)
-
-        if decomposed is NotImplemented or decomposed is None:
-            decomposed = try_op_decomposer(item, fallback_decomposer)
-
-        if decomposed is not NotImplemented and decomposed is not None:
-            queue[:0] = ops.flatten_to_ops(decomposed)
-            continue
-
-        if not isinstance(item, ops.Operation) and isinstance(item, Iterable):
-            queue[:0] = ops.flatten_to_ops(item)
-            continue
-
-        if keep is not None and on_stuck_raise is not None:
-            if isinstance(on_stuck_raise, Exception):
-                raise on_stuck_raise
-            elif callable(on_stuck_raise):
-                error = on_stuck_raise(item)
-                if error is not None:
-                    raise error
-
-        output.append(item)
-
-    return output
-
-
-# pylint: disable=function-redefined
+    if context is None:
+        context = DecompositionContext(ops.SimpleQubitManager(prefix='_decompose_protocol'))
+    args = _DecomposeArgs(
+        context=context,
+        intercepting_decomposer=intercepting_decomposer,
+        fallback_decomposer=fallback_decomposer,
+        keep=keep,
+        on_stuck_raise=on_stuck_raise,
+        preserve_structure=preserve_structure,
+    )
+    return [*_decompose_dfs(val, args)]
 
 
 @overload
-def decompose_once(val: Any, **kwargs) -> List['cirq.Operation']:
+def decompose_once(val: Any, **kwargs) -> list[cirq.Operation]:
     pass
 
 
 @overload
 def decompose_once(
-    val: Any, default: TDefault, *args, **kwargs
-) -> Union[TDefault, List['cirq.Operation']]:
+    val: Any, default: TDefault, *args, flatten: bool = True, **kwargs
+) -> TDefault | list[cirq.Operation]:
     pass
 
 
-def decompose_once(val: Any, default=RaiseTypeErrorIfNotProvided, *args, **kwargs):
+def decompose_once(
+    val: Any,
+    default=RaiseTypeErrorIfNotProvided,
+    *args,
+    flatten: bool = True,
+    context: DecompositionContext | None = None,
+    **kwargs,
+):
     """Decomposes a value into operations, if possible.
 
     This method decomposes the value exactly once, instead of decomposing it
@@ -266,10 +347,13 @@ def decompose_once(val: Any, default=RaiseTypeErrorIfNotProvided, *args, **kwarg
             `_decompose_` method or that method returns `NotImplemented` or
             `None`. If not specified, non-decomposable values cause a
             `TypeError`.
-        args: Positional arguments to forward into the `_decompose_` method of
+        *args: Positional arguments to forward into the `_decompose_` method of
             `val`.  For example, this is used to tell gates what qubits they are
             being applied to.
-        kwargs: Keyword arguments to forward into the `_decompose_` method of
+        flatten: If True, the returned OP-TREE will be flattened to a list of operations.
+        context: Decomposition context specifying common configurable options for
+            controlling the behavior of decompose.
+        **kwargs: Keyword arguments to forward into the `_decompose_` method of
             `val`.
 
     Returns:
@@ -278,42 +362,67 @@ def decompose_once(val: Any, default=RaiseTypeErrorIfNotProvided, *args, **kwarg
         Otherwise `default` is returned, if it was specified. Otherwise an error
         is raised.
 
-    TypeError:
-        `val` didn't have a `_decompose_` method (or that method returned
-        `NotImplemented` or `None`) and `default` wasn't set.
+    Raises:
+        TypeError: `val` didn't have a `_decompose_` method (or that method returned
+            `NotImplemented` or `None`) and `default` wasn't set.
     """
-    method = getattr(val, '_decompose_', None)
-    decomposed = NotImplemented if method is None else method(*args, **kwargs)
+    if context is None:
+        context = DecompositionContext(
+            ops.SimpleQubitManager(prefix=f'_decompose_protocol_{next(_CONTEXT_COUNTER)}')
+        )
+
+    method = getattr(val, '_decompose_with_context_', None)
+    decomposed = NotImplemented if method is None else method(*args, **kwargs, context=context)
+    if decomposed is NotImplemented or decomposed is None:
+        method = getattr(val, '_decompose_', None)
+        decomposed = NotImplemented if method is None else method(*args, **kwargs)
 
     if decomposed is not NotImplemented and decomposed is not None:
-        return list(ops.flatten_op_tree(decomposed))
+        return list(ops.flatten_to_ops(decomposed)) if flatten else decomposed
 
     if default is not RaiseTypeErrorIfNotProvided:
         return default
     if method is None:
-        raise TypeError(f"object of type '{type(val)}' has no _decompose_ method.")
+        raise TypeError(
+            f"object of type '{type(val)}' has no _decompose_with_context_ or "
+            f"_decompose_ method."
+        )
     raise TypeError(
-        "object of type '{}' does have a _decompose_ method, "
-        "but it returned NotImplemented or None.".format(type(val))
+        f"object of type {type(val)} does have a _decompose_ method, "
+        "but it returned NotImplemented or None. The value is not "
+        "convertible to simpler operations."
     )
 
 
 @overload
-def decompose_once_with_qubits(val: Any, qubits: Iterable['cirq.Qid']) -> List['cirq.Operation']:
+def decompose_once_with_qubits(
+    val: Any,
+    qubits: Iterable[cirq.Qid],
+    *,
+    flatten: bool = True,
+    context: DecompositionContext | None = None,
+) -> list[cirq.Operation]:
     pass
 
 
 @overload
 def decompose_once_with_qubits(
     val: Any,
-    qubits: Iterable['cirq.Qid'],
-    default: Optional[TDefault],
-) -> Union[TDefault, List['cirq.Operation']]:
+    qubits: Iterable[cirq.Qid],
+    default: TDefault | None,
+    *,
+    flatten: bool = True,
+    context: DecompositionContext | None = None,
+) -> TDefault | list[cirq.Operation]:
     pass
 
 
 def decompose_once_with_qubits(
-    val: Any, qubits: Iterable['cirq.Qid'], default=RaiseTypeErrorIfNotProvided
+    val: Any,
+    qubits: Iterable[cirq.Qid],
+    default=RaiseTypeErrorIfNotProvided,
+    flatten: bool = True,
+    context: DecompositionContext | None = None,
 ):
     """Decomposes a value into operations on the given qubits.
 
@@ -330,6 +439,9 @@ def decompose_once_with_qubits(
             `_decompose_` method or that method returns `NotImplemented` or
             `None`. If not specified, non-decomposable values cause a
             `TypeError`.
+        flatten: If True, the returned OP-TREE will be flattened to a list of operations.
+        context: Decomposition context specifying common configurable options for
+            controlling the behavior of decompose.
 
     Returns:
         The result of `val._decompose_(qubits)`, if `val` has a
@@ -341,21 +453,18 @@ def decompose_once_with_qubits(
         `val` didn't have a `_decompose_` method (or that method returned
         `NotImplemented` or `None`) and `default` wasn't set.
     """
-    return decompose_once(val, default, tuple(qubits))
-
-
-# pylint: enable=function-redefined
+    return decompose_once(val, default, tuple(qubits), flatten=flatten, context=context)
 
 
 def _try_decompose_into_operations_and_qubits(
     val: Any,
-) -> Tuple[Optional[List['cirq.Operation']], Sequence['cirq.Qid'], Tuple[int, ...]]:
+) -> tuple[list[cirq.Operation] | None, Sequence[cirq.Qid], tuple[int, ...]]:
     """Returns the value's decomposition (if any) and the qubits it applies to."""
 
     if isinstance(val, ops.Gate):
         # Gates don't specify qubits, and so must be handled specially.
         qid_shape = qid_shape_protocol.qid_shape(val)
-        qubits = devices.LineQid.for_qid_shape(qid_shape)  # type: Sequence[cirq.Qid]
+        qubits: Sequence[cirq.Qid] = devices.LineQid.for_qid_shape(qid_shape)
         return decompose_once_with_qubits(val, qubits, None), qubits, qid_shape
 
     if isinstance(val, ops.Operation):
@@ -365,72 +474,11 @@ def _try_decompose_into_operations_and_qubits(
     result = decompose_once(val, None)
     if result is not None:
         qubit_set = set()
-        qid_shape_dict: Dict[cirq.Qid, int] = defaultdict(lambda: 1)
+        qid_shape_dict: dict[cirq.Qid, int] = defaultdict(lambda: 1)
         for op in result:
             for level, q in zip(qid_shape_protocol.qid_shape(op), op.qubits):
                 qubit_set.add(q)
                 qid_shape_dict[q] = max(qid_shape_dict[q], level)
         qubits = sorted(qubit_set)
         return result, qubits, tuple(qid_shape_dict[q] for q in qubits)
-
     return None, (), ()
-
-
-def _decompose_preserving_structure(
-    val: Any,
-    *,
-    intercepting_decomposer: Optional[OpDecomposer] = None,
-    fallback_decomposer: Optional[OpDecomposer] = None,
-    keep: Optional[Callable[['cirq.Operation'], bool]] = None,
-    on_stuck_raise: Union[
-        None, Exception, Callable[['cirq.Operation'], Union[None, Exception]]
-    ] = _value_error_describing_bad_operation,
-) -> List['cirq.Operation']:
-    """Preserves structure (e.g. subcircuits) while decomposing ops.
-
-    This can be used to reduce a circuit to a particular gateset without
-    increasing its serialization size. See tests for examples.
-    """
-
-    # This method provides a generated 'keep' to its decompose() calls.
-    # If the user-provided keep is not set, on_stuck_raise must be unset to
-    # ensure that failure to decompose does not generate errors.
-    on_stuck_raise = on_stuck_raise if keep is not None else None
-
-    from cirq.circuits import CircuitOperation, FrozenCircuit
-
-    visited_fcs = set()
-
-    def keep_structure(op: 'cirq.Operation'):
-        circuit = getattr(op.untagged, 'circuit', None)
-        if circuit is not None:
-            return circuit in visited_fcs
-        if keep is not None and keep(op):
-            return True
-
-    def dps_interceptor(op: 'cirq.Operation'):
-        if not isinstance(op.untagged, CircuitOperation):
-            if intercepting_decomposer is None:
-                return NotImplemented
-            return intercepting_decomposer(op)
-
-        new_fc = FrozenCircuit(
-            decompose(
-                op.untagged.circuit,
-                intercepting_decomposer=dps_interceptor,
-                fallback_decomposer=fallback_decomposer,
-                keep=keep_structure,
-                on_stuck_raise=on_stuck_raise,
-            )
-        )
-        visited_fcs.add(new_fc)
-        new_co = op.untagged.replace(circuit=new_fc)
-        return new_co if not op.tags else new_co.with_tags(*op.tags)
-
-    return decompose(
-        val,
-        intercepting_decomposer=dps_interceptor,
-        fallback_decomposer=fallback_decomposer,
-        keep=keep_structure,
-        on_stuck_raise=on_stuck_raise,
-    )

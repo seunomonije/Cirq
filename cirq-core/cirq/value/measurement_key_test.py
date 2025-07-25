@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import pytest
 
 import cirq
@@ -19,9 +21,13 @@ import cirq
 
 def test_empty_init():
     with pytest.raises(TypeError, match='required positional argument'):
-        _ = cirq.MeasurementKey()
-    with pytest.raises(ValueError, match='cannot be empty'):
-        _ = cirq.MeasurementKey('')
+        _ = cirq.MeasurementKey()  # pylint: disable=no-value-for-parameter
+    with pytest.raises(ValueError, match='valid string'):
+        _ = cirq.MeasurementKey(None)
+    with pytest.raises(ValueError, match='valid string'):
+        _ = cirq.MeasurementKey(4.2)
+    # Initialization of empty string should be allowed
+    _ = cirq.MeasurementKey('')
 
 
 def test_nested_key():
@@ -39,7 +45,7 @@ def test_eq_and_hash():
             self.some_str = some_str
 
         def __str__(self):
-            return self.some_str  # coverage: ignore
+            return self.some_str  # pragma: no cover
 
     mkey = cirq.MeasurementKey('key')
     assert mkey == 'key'
@@ -59,16 +65,18 @@ def test_str(key_string):
 
 def test_repr():
     mkey = cirq.MeasurementKey('key_string')
-    assert repr(mkey) == f'cirq.MeasurementKey(name=key_string)'
+    assert repr(mkey) == "cirq.MeasurementKey(name='key_string')"
+    assert eval(repr(mkey)) == mkey
     mkey = cirq.MeasurementKey.parse_serialized('nested:key')
-    assert repr(mkey) == f'cirq.MeasurementKey(path=(\'nested\',), name=key)'
+    assert repr(mkey) == "cirq.MeasurementKey(path=('nested',), name='key')"
+    assert eval(repr(mkey)) == mkey
 
 
 def test_json_dict():
     mkey = cirq.MeasurementKey('key')
-    assert mkey._json_dict_() == {'cirq_type': 'MeasurementKey', 'name': 'key', 'path': tuple()}
+    assert mkey._json_dict_() == {'name': 'key', 'path': tuple()}
     mkey = cirq.MeasurementKey.parse_serialized('nested:key')
-    assert mkey._json_dict_() == {'cirq_type': 'MeasurementKey', 'name': 'key', 'path': ('nested',)}
+    assert mkey._json_dict_() == {'name': 'key', 'path': ('nested',)}
 
 
 def test_with_key_path():
@@ -92,3 +100,22 @@ def test_with_measurement_key_mapping():
     mkey3 = cirq.with_measurement_key_mapping(mkey3, {'new_key': 'newer_key'})
     assert mkey3.name == 'newer_key'
     assert mkey3.path == ('a',)
+
+
+def test_compare():
+    assert cirq.MeasurementKey('a') < cirq.MeasurementKey('b')
+    assert cirq.MeasurementKey('a') <= cirq.MeasurementKey('b')
+    assert cirq.MeasurementKey('a') <= cirq.MeasurementKey('a')
+    assert cirq.MeasurementKey('b') > cirq.MeasurementKey('a')
+    assert cirq.MeasurementKey('b') >= cirq.MeasurementKey('a')
+    assert cirq.MeasurementKey('a') >= cirq.MeasurementKey('a')
+    assert not cirq.MeasurementKey('a') > cirq.MeasurementKey('b')
+    assert not cirq.MeasurementKey('a') >= cirq.MeasurementKey('b')
+    assert not cirq.MeasurementKey('b') < cirq.MeasurementKey('a')
+    assert not cirq.MeasurementKey('b') <= cirq.MeasurementKey('a')
+    assert cirq.MeasurementKey(path=(), name='b') < cirq.MeasurementKey(path=('0',), name='a')
+    assert cirq.MeasurementKey(path=('0',), name='n') < cirq.MeasurementKey(path=('1',), name='a')
+    with pytest.raises(TypeError):
+        _ = cirq.MeasurementKey('a') < 'b'
+    with pytest.raises(TypeError):
+        _ = cirq.MeasurementKey('a') <= 'b'

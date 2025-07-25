@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from typing import Any, TypeVar
 
 from typing_extensions import Protocol
@@ -21,7 +23,7 @@ from typing_extensions import Protocol
 # implementation of _phase_by_ exists.
 from cirq._doc import doc_private
 
-RaiseTypeErrorIfNotProvided = ([],)  # type: Any
+RaiseTypeErrorIfNotProvided: Any = ([],)
 
 TDefault = TypeVar('TDefault')
 
@@ -30,7 +32,7 @@ class SupportsPhase(Protocol):
     """An effect that can be phased around the Z axis of target qubits."""
 
     @doc_private
-    def _phase_by_(self: Any, phase_turns: float, qubit_index: int):
+    def _phase_by_(self, phase_turns: float, qubit_index: int):
         """Returns a phased version of the effect.
 
         Specifically, returns an object with matrix P U P^-1 (up to global
@@ -88,6 +90,6 @@ def phase_by(
     if getter is None:
         raise TypeError(f"object of type '{type(val)}' has no _phase_by_ method.")
     raise TypeError(
-        "object of type '{}' does have a _phase_by_ method, "
-        "but it returned NotImplemented.".format(type(val))
+        f"object of type '{type(val)}' does have a _phase_by_ method, "
+        "but it returned NotImplemented."
     )

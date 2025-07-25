@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import numpy as np
 import pytest
 
 import cirq
 from cirq.ops import QubitPermutationGate
 
 
-def test_permutation_gate_equality():
+def test_permutation_gate_equality() -> None:
     eq = cirq.testing.EqualsTester()
     eq.make_equality_group(
         lambda: QubitPermutationGate([0, 1]), lambda: QubitPermutationGate((0, 1))
@@ -26,30 +29,34 @@ def test_permutation_gate_equality():
     eq.add_equality_group(QubitPermutationGate([1, 0]), QubitPermutationGate((1, 0)))
 
 
-def test_permutation_gate_repr():
+def test_permutation_gate_repr() -> None:
     cirq.testing.assert_equivalent_repr(QubitPermutationGate([0, 1]))
 
 
-def test_permutation_gate_consistent_protocols():
-    gate = QubitPermutationGate([1, 0, 2, 3])
+rs = np.random.RandomState(seed=1234)
+
+
+@pytest.mark.parametrize('permutation', [rs.permutation(i) for i in range(3, 7)])
+def test_permutation_gate_consistent_protocols(permutation) -> None:
+    gate = QubitPermutationGate(list(permutation))
     cirq.testing.assert_implements_consistent_protocols(gate)
 
 
-def test_permutation_gate_invalid_indices():
+def test_permutation_gate_invalid_indices() -> None:
     with pytest.raises(ValueError, match="Invalid indices"):
         QubitPermutationGate([1, 0, 2, 4])
     with pytest.raises(ValueError, match="Invalid indices"):
         QubitPermutationGate([-1])
 
 
-def test_permutation_gate_invalid_permutation():
+def test_permutation_gate_invalid_permutation() -> None:
     with pytest.raises(ValueError, match="Invalid permutation"):
         QubitPermutationGate([1, 1])
     with pytest.raises(ValueError, match="Invalid permutation"):
         QubitPermutationGate([])
 
 
-def test_permutation_gate_diagram():
+def test_permutation_gate_diagram() -> None:
     q = cirq.LineQubit.range(6)
     cirq.testing.assert_has_diagram(
         cirq.Circuit(cirq.X(q[0]), cirq.X(q[5]), QubitPermutationGate([3, 2, 1, 0]).on(*q[1:5])),
@@ -69,11 +76,8 @@ def test_permutation_gate_diagram():
     )
 
 
-def test_permutation_gate_json_dict():
-    assert cirq.QubitPermutationGate([0, 1, 2])._json_dict_() == {
-        'cirq_type': 'QubitPermutationGate',
-        'permutation': (0, 1, 2),
-    }
+def test_permutation_gate_json_dict() -> None:
+    assert cirq.QubitPermutationGate([0, 1, 2])._json_dict_() == {'permutation': (0, 1, 2)}
 
 
 @pytest.mark.parametrize(
@@ -94,8 +98,10 @@ def test_permutation_gate_json_dict():
         ],
     ],
 )
-def test_permutation_gate_maps(maps, permutation):
+def test_permutation_gate_maps(maps, permutation) -> None:
     qs = cirq.LineQubit.range(len(permutation))
     permutationOp = cirq.QubitPermutationGate(permutation).on(*qs)
     circuit = cirq.Circuit(permutationOp)
+    cirq.testing.assert_equivalent_computational_basis_map(maps, circuit)
+    circuit = cirq.Circuit(cirq.I.on_each(*qs), cirq.decompose(permutationOp))
     cirq.testing.assert_equivalent_computational_basis_map(maps, circuit)

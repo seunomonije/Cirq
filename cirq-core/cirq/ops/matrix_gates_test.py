@@ -11,6 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import re
 
 import numpy as np
@@ -29,12 +32,12 @@ def test_single_qubit_init():
     m = np.array([[1, 1j], [1j, 1]]) * np.sqrt(0.5)
     x2 = cirq.MatrixGate(m)
     assert cirq.has_unitary(x2)
-    assert np.alltrue(cirq.unitary(x2) == m)
+    assert np.all(cirq.unitary(x2) == m)
     assert cirq.qid_shape(x2) == (2,)
 
     x2 = cirq.MatrixGate(PLUS_ONE, qid_shape=(3,))
     assert cirq.has_unitary(x2)
-    assert np.alltrue(cirq.unitary(x2) == PLUS_ONE)
+    assert np.all(cirq.unitary(x2) == PLUS_ONE)
     assert cirq.qid_shape(x2) == (3,)
 
     with pytest.raises(ValueError, match='Not a .*unitary matrix'):
@@ -80,16 +83,16 @@ def test_single_qubit_extrapolate():
     assert cirq.has_unitary(x2)
     x2i = cirq.MatrixGate(np.conj(cirq.unitary(x2).T))
 
-    assert cirq.approx_eq(x ** 0, i, atol=1e-9)
-    assert cirq.approx_eq(x2 ** 0, i, atol=1e-9)
-    assert cirq.approx_eq(x2 ** 2, x, atol=1e-9)
-    assert cirq.approx_eq(x2 ** -1, x2i, atol=1e-9)
-    assert cirq.approx_eq(x2 ** 3, x2i, atol=1e-9)
-    assert cirq.approx_eq(x ** -1, x, atol=1e-9)
+    assert cirq.approx_eq(x**0, i, atol=1e-9)
+    assert cirq.approx_eq(x2**0, i, atol=1e-9)
+    assert cirq.approx_eq(x2**2, x, atol=1e-9)
+    assert cirq.approx_eq(x2**-1, x2i, atol=1e-9)
+    assert cirq.approx_eq(x2**3, x2i, atol=1e-9)
+    assert cirq.approx_eq(x**-1, x, atol=1e-9)
 
     z2 = cirq.MatrixGate(np.array([[1, 0], [0, 1j]]))
     z4 = cirq.MatrixGate(np.array([[1, 0], [0, (1 + 1j) * np.sqrt(0.5)]]))
-    assert cirq.approx_eq(z2 ** 0.5, z4, atol=1e-9)
+    assert cirq.approx_eq(z2**0.5, z4, atol=1e-9)
     with pytest.raises(TypeError):
         _ = x ** sympy.Symbol('a')
 
@@ -97,7 +100,7 @@ def test_single_qubit_extrapolate():
 def test_two_qubit_init():
     x2 = cirq.MatrixGate(QFT2)
     assert cirq.has_unitary(x2)
-    assert np.alltrue(cirq.unitary(x2) == QFT2)
+    assert np.all(cirq.unitary(x2) == QFT2)
 
 
 def test_two_qubit_eq():
@@ -125,9 +128,9 @@ def test_two_qubit_extrapolate():
     cz4 = cirq.MatrixGate(np.diag([1, 1, 1, (1 + 1j) * np.sqrt(0.5)]))
     i = cirq.MatrixGate(np.eye(4))
 
-    assert cirq.approx_eq(cz2 ** 0, i, atol=1e-9)
-    assert cirq.approx_eq(cz4 ** 0, i, atol=1e-9)
-    assert cirq.approx_eq(cz2 ** 0.5, cz4, atol=1e-9)
+    assert cirq.approx_eq(cz2**0, i, atol=1e-9)
+    assert cirq.approx_eq(cz4**0, i, atol=1e-9)
+    assert cirq.approx_eq(cz2**0.5, cz4, atol=1e-9)
     with pytest.raises(TypeError):
         _ = cz2 ** sympy.Symbol('a')
 
@@ -271,21 +274,34 @@ Bar[2]─┼──────Bar[1]
     assert expected_vertical == c.to_text_diagram(transpose=True).strip()
 
 
+def test_with_name():
+    gate = cirq.MatrixGate(cirq.unitary(cirq.Z**0.25))
+    T = gate.with_name('T')
+    S = (T**2).with_name('S')
+    assert T._name == 'T'
+    np.testing.assert_allclose(cirq.unitary(T), cirq.unitary(gate))
+    assert S._name == 'S'
+    np.testing.assert_allclose(cirq.unitary(S), cirq.unitary(T**2))
+
+
 def test_str_executes():
     assert '1' in str(cirq.MatrixGate(np.eye(2)))
     assert '0' in str(cirq.MatrixGate(np.eye(4)))
 
 
-def test_one_qubit_consistent():
-    u = cirq.testing.random_unitary(2)
-    g = cirq.MatrixGate(u)
-    cirq.testing.assert_implements_consistent_protocols(g)
+@pytest.mark.parametrize('n', [1, 2, 3, 4, 5])
+def test_implements_consistent_protocols(n):
+    u = cirq.testing.random_unitary(2**n)
+    g1 = cirq.MatrixGate(u)
+    cirq.testing.assert_implements_consistent_protocols(g1, ignoring_global_phase=True)
+    cirq.testing.assert_decompose_ends_at_default_gateset(g1)
 
+    if n == 1:
+        return
 
-def test_two_qubit_consistent():
-    u = cirq.testing.random_unitary(4)
-    g = cirq.MatrixGate(u)
-    cirq.testing.assert_implements_consistent_protocols(g)
+    g2 = cirq.MatrixGate(u, qid_shape=(4,) + (2,) * (n - 2))
+    cirq.testing.assert_implements_consistent_protocols(g2, ignoring_global_phase=True)
+    cirq.testing.assert_decompose_ends_at_default_gateset(g2)
 
 
 def test_repr():
@@ -320,7 +336,7 @@ def test_matrix_gate_pow():
     assert cirq.pow(cirq.MatrixGate(1j * np.eye(1)), 2) == cirq.MatrixGate(-np.eye(1))
 
     m = cirq.MatrixGate(np.diag([1, 1j, -1]), qid_shape=(3,))
-    assert m ** 3 == cirq.MatrixGate(np.diag([1, -1j, -1]), qid_shape=(3,))
+    assert m**3 == cirq.MatrixGate(np.diag([1, -1j, -1]), qid_shape=(3,))
 
 
 def test_phase_by():
@@ -375,3 +391,38 @@ def test_matrixgate_unitary_tolerance():
     # very low atol -> the check never converges
     with pytest.raises(ValueError):
         _ = cirq.MatrixGate(np.array([[0.707, 0.707], [-0.707, 0.707]]), unitary_check_rtol=1e-10)
+
+
+def test_matrixgate_name_serialization():
+    # https://github.com/quantumlib/Cirq/issues/5999
+
+    # Test name serialization
+    gate1 = cirq.MatrixGate(np.eye(2), name='test_name')
+    gate_after_serialization1 = cirq.read_json(json_text=cirq.to_json(gate1))
+    assert gate1._name == 'test_name'
+    assert gate_after_serialization1._name == 'test_name'
+
+    # Test name backwards compatibility
+    gate2 = cirq.MatrixGate(np.eye(2))
+    gate_after_serialization2 = cirq.read_json(json_text=cirq.to_json(gate2))
+    assert gate2._name is None
+    assert gate_after_serialization2._name is None
+
+    # Test empty name
+    gate3 = cirq.MatrixGate(np.eye(2), name='')
+    gate_after_serialization3 = cirq.read_json(json_text=cirq.to_json(gate3))
+    assert gate3._name == ''
+    assert gate_after_serialization3._name == ''
+
+
+def test_decompose_when_qubits_not_in_ascending_order():
+    # Previous code for preserving global phase would misorder qubits
+    q0, q1 = cirq.LineQubit.range(2)
+    circuit1 = cirq.Circuit()
+    matrix = cirq.testing.random_unitary(4, random_state=0)
+    circuit1.append(cirq.MatrixGate(matrix).on(q1, q0))
+    u1 = cirq.unitary(circuit1)
+    decomposed = cirq.decompose(circuit1)
+    circuit2 = cirq.Circuit(decomposed)
+    u2 = cirq.unitary(circuit2)
+    np.testing.assert_allclose(u1, u2, atol=1e-14)

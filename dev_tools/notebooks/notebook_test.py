@@ -19,35 +19,81 @@
 # main focus and it is executed in a shared virtual environment for the notebooks. Thus, these
 # tests ensure that notebooks are still working with the latest version of cirq.
 
+from __future__ import annotations
+
+import importlib.metadata
 import os
+import tempfile
+from typing import Iterator
 
 import pytest
 
 from dev_tools import shell_tools
-from dev_tools.notebooks import filter_notebooks, list_all_notebooks, rewrite_notebook
+from dev_tools.modules import list_modules
+from dev_tools.notebooks import filter_notebooks, list_all_notebooks, REPO_ROOT, rewrite_notebook
+from dev_tools.test_utils import only_on_posix
 
 SKIP_NOTEBOOKS = [
     # skipping vendor notebooks as we don't have auth sorted out
-    "**/aqt/*.ipynb",
-    "**/ionq/*.ipynb",
-    "**/google/*.ipynb",
-    "**/pasqal/*.ipynb",
-    # Rigetti uses local simulation with docker, so should work
-    # if you run into issues locally, run
-    # `docker compose -f cirq-rigetti/docker-compose.test.yaml up`
-    # "**/rigetti/*.ipynb",
-    # skipping fidelity estimation due to
-    # https://github.com/quantumlib/Cirq/issues/3502
-    "examples/*fidelity*",
-    # chemistry.ipynb requires openfermion, that installs cirq 0.9.1, which interferes
-    # with testing cirq itself...
-    'docs/tutorials/educators/chemistry.ipynb',
+    '**/aqt/*.ipynb',
+    '**/azure-quantum/*.ipynb',
+    '**/ionq/*.ipynb',
+    '**/pasqal/*.ipynb',
+    # skipping quantum utility simulation (too large)
+    'examples/advanced/*quantum_utility*',
+    # tutorials that use QCS and arent skipped due to one or more cleared output cells
+    'docs/tutorials/google/identifying_hardware_changes.ipynb',
+    'docs/tutorials/google/echoes.ipynb',
+    # temporary: need to fix QVM metrics and device spec
+    'docs/tutorials/google/spin_echoes.ipynb',
+    'docs/tutorials/google/visualizing_calibration_metrics.ipynb',
 ]
 
 
+@pytest.fixture
+def require_packages_not_changed() -> Iterator[None]:
+    """Verify notebook test does not change packages in the Python test environment.
+
+    Raise AssertionError if the pre-existing set of Python packages changes in any way.
+    """
+    cirq_packages = set(m.name for m in list_modules()).union(["cirq"])
+    packages_before = set(
+        (d.name, d.version)
+        for d in importlib.metadata.distributions()
+        if d.name not in cirq_packages
+    )
+    yield
+    packages_after = set(
+        (d.name, d.version)
+        for d in importlib.metadata.distributions()
+        if d.name not in cirq_packages
+    )
+    assert packages_after == packages_before
+
+
+@pytest.fixture
+def env_with_temporary_pip_target() -> Iterator[dict[str, str]]:
+    """Setup system environment that tells pip to install packages to a temporary directory."""
+    with tempfile.TemporaryDirectory(suffix='-notebook-site-packages') as tmpdirname:
+        # Note: We need to append tmpdirname to the PYTHONPATH, because PYTHONPATH may
+        # already point to the development sources of Cirq (as happens with check/pytest).
+        # Should some notebook pip-install a stable version of Cirq to tmpdirname,
+        # it would appear in PYTHONPATH after the development Cirq.
+        pythonpath = (
+            f'{os.environ["PYTHONPATH"]}{os.pathsep}{tmpdirname}'
+            if 'PYTHONPATH' in os.environ
+            else tmpdirname
+        )
+        env = {**os.environ, 'PYTHONPATH': pythonpath, 'PIP_TARGET': tmpdirname}
+        yield env
+
+
 @pytest.mark.slow
+@only_on_posix
 @pytest.mark.parametrize("notebook_path", filter_notebooks(list_all_notebooks(), SKIP_NOTEBOOKS))
-def test_notebooks_against_released_cirq(notebook_path):
+def test_notebooks_against_cirq_head(
+    notebook_path, require_packages_not_changed, env_with_temporary_pip_target
+) -> None:
     """Test that jupyter notebooks execute.
 
     In order to speed up the execution of these tests an auxiliary file may be supplied which
@@ -60,28 +106,34 @@ def test_notebooks_against_released_cirq(notebook_path):
     Lines in this file that do not have `->` are ignored.
     """
     notebook_file = os.path.basename(notebook_path)
-    notebook_rel_dir = os.path.dirname(os.path.relpath(notebook_path, "."))
+    notebook_rel_dir = os.path.dirname(os.path.relpath(notebook_path, REPO_ROOT))
     out_path = f"out/{notebook_rel_dir}/{notebook_file[:-6]}.out.ipynb"
-    rewritten_notebook_descriptor, rewritten_notebook_path = rewrite_notebook(notebook_path)
+    rewritten_notebook_path = rewrite_notebook(notebook_path)
     papermill_flags = "--no-request-save-on-cell-execute --autosave-cell-every 0"
-    cmd = f"""mkdir -p out/{notebook_rel_dir}
-papermill {rewritten_notebook_path} {out_path} {papermill_flags}"""
+    cmd = f"papermill {rewritten_notebook_path} {REPO_ROOT/out_path} {papermill_flags}"
 
-    _, stderr, status = shell_tools.run_shell(
-        cmd=cmd,
+    REPO_ROOT.joinpath("out", notebook_rel_dir).mkdir(parents=True, exist_ok=True)
+    result = shell_tools.run(
+        cmd,
         log_run_to_stderr=False,
-        raise_on_fail=False,
-        out=shell_tools.TeeCapture(),
-        err=shell_tools.TeeCapture(),
+        shell=True,
+        check=False,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        env=env_with_temporary_pip_target,
     )
 
-    if status != 0:
-        print(stderr)
+    if result.returncode != 0:
+        print(result.stderr)
         pytest.fail(
             f"Notebook failure: {notebook_file}, please see {out_path} for the output "
-            f"notebook (in Github Actions, you can download it from the workflow artifact"
+            f"notebook (in GitHub Actions, you can download it from the workflow artifact"
             f" 'notebook-outputs')"
         )
+    os.remove(rewritten_notebook_path)
 
-    if rewritten_notebook_descriptor:
-        os.close(rewritten_notebook_descriptor)
+
+def test_skip_notebooks_has_valid_patterns() -> None:
+    """Verify patterns in SKIP_NOTEBOOKS are all valid."""
+    patterns_without_match = [g for g in SKIP_NOTEBOOKS if not any(REPO_ROOT.glob(g))]
+    assert patterns_without_match == []

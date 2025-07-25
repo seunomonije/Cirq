@@ -1,10 +1,10 @@
-# Copyright 2020 The Cirq developers
+# Copyright 2020 The Cirq Developers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,19 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import dataclasses
 import datetime
-from typing import Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Iterable, Mapping, TYPE_CHECKING
 
 import numpy as np
+import sympy
 
-from cirq import protocols, ops
+from cirq import ops, protocols, value
 from cirq._compat import proper_repr
 from cirq.work.observable_settings import (
-    InitObsSetting,
     _max_weight_observable,
     _max_weight_state,
     _MeasurementSpec,
+    InitObsSetting,
     zeros_state,
 )
 
@@ -32,18 +35,18 @@ if TYPE_CHECKING:
     import cirq
 
 
-def _check_and_get_real_coef(observable: 'cirq.PauliString', atol: float):
+def _check_and_get_real_coef(observable: cirq.PauliString, atol: float):
     """Assert that a PauliString has a real coefficient and return it."""
     coef = observable.coefficient
-    if not np.isclose(coef.imag, 0, atol=atol):
-        raise ValueError(f"{observable} has a complex coefficient.")
+    if isinstance(coef, sympy.Expr) or not np.isclose(coef.imag, 0, atol=atol):
+        raise ValueError(f"{observable} has a complex or symbolic coefficient.")
     return coef.real
 
 
 def _obs_vals_from_measurements(
     bitstrings: np.ndarray,
-    qubit_to_index: Dict['cirq.Qid', int],
-    observable: 'cirq.PauliString',
+    qubit_to_index: Mapping[cirq.Qid, int],
+    observable: cirq.PauliString,
     atol: float,
 ):
     """Multiply together bitstrings to get observed values of operators."""
@@ -60,10 +63,10 @@ def _obs_vals_from_measurements(
 
 def _stats_from_measurements(
     bitstrings: np.ndarray,
-    qubit_to_index: Dict['cirq.Qid', int],
-    observable: 'cirq.PauliString',
+    qubit_to_index: Mapping[cirq.Qid, int],
+    observable: cirq.PauliString,
     atol: float,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Return the mean and squared standard error of the mean for the given
     observable according to the measurements in `bitstrings`."""
     obs_vals = _obs_vals_from_measurements(bitstrings, qubit_to_index, observable, atol=atol)
@@ -81,12 +84,12 @@ def _stats_from_measurements(
     return obs_mean.item(), obs_err.item()
 
 
-@protocols.json_serializable_dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class ObservableMeasuredResult:
     """The result of an observable measurement.
 
-    Please see `flatten_grouped_results` or `BitstringAccumulator.results` for information on how
-    to get these from `measure_observables` return values.
+    A list of these is returned by `measure_observables`, or see `flatten_grouped_results` for
+    transformation of `measure_grouped_settings` BitstringAccumulators into these objects.
 
     This is a flattened form of the contents of a `BitstringAccumulator` which may group many
     simultaneously-observable settings into one object. As such, `BitstringAccumulator` has more
@@ -106,11 +109,14 @@ class ObservableMeasuredResult:
     mean: float
     variance: float
     repetitions: int
-    circuit_params: Dict[str, float]
+    circuit_params: Mapping[str | sympy.Expr, value.Scalar | sympy.Expr]
+
+    # unhashable because of the mapping-type circuit_params attribute
+    __hash__ = None  # type: ignore
 
     def __repr__(self):
         # I wish we could use the default dataclass __repr__ but
-        # we need to prefix our class name with `cirq.work.`A
+        # we need to prefix our class name with `cirq.work.`
         return (
             f'cirq.work.ObservableMeasuredResult('
             f'setting={self.setting!r}, '
@@ -131,6 +137,25 @@ class ObservableMeasuredResult:
     @property
     def stddev(self):
         return np.sqrt(self.variance)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the contents of this class as a dictionary.
+
+        This makes records suitable for construction of a Pandas dataframe. The circuit parameters
+        are flattened into the top-level of this dictionary.
+        """
+        record = dataclasses.asdict(self)
+        del record['circuit_params']
+        del record['setting']
+        record['init_state'] = self.init_state
+        record['observable'] = self.observable
+
+        circuit_param_dict = {f'param.{k}': v for k, v in self.circuit_params.items()}
+        record.update(**circuit_param_dict)
+        return record
+
+    def _json_dict_(self):
+        return protocols.dataclass_json_dict(self)
 
 
 def _setting_to_z_observable(setting: InitObsSetting):
@@ -169,6 +194,7 @@ class BitstringAccumulator:
             for the settings in `simul_settings`.
         qubit_to_index: A mapping from qubits to contiguous indices starting
             from zero. This allows us to store bitstrings as a 2d numpy array.
+        bitstrings: The bitstrings to record.
         chunksizes: This class accumulates bitstrings from potentially several
             "chunked" processor runs. Each chunk has a certain number of
             repetitions, recorded in this array. This theoretically
@@ -176,8 +202,7 @@ class BitstringAccumulator:
             arise. The total number of repetitions is the sum of this 1d array.
         timestamps: We record a timestamp for each request/chunk. This
             1d array will have the same length as `chunksizes`.
-        readout_calibration:
-            The result of `calibrate_readout_error`. When requesting
+        readout_calibration: The result of `calibrate_readout_error`. When requesting
             means and variances, if this is not `None`, we will use the
             calibrated value to correct the requested quantity. This is a
             `BitstringAccumulator` containing the results of measuring Z
@@ -185,35 +210,37 @@ class BitstringAccumulator:
             does *not* validate that both this parameter and the
             `BitstringAccumulator` under construction contain measurements taken
             with readout symmetrization turned on.
-
     """
 
     def __init__(
         self,
         meas_spec: _MeasurementSpec,
-        simul_settings: List[InitObsSetting],
-        qubit_to_index: Dict['cirq.Qid', int],
-        bitstrings: np.ndarray = None,
-        chunksizes: np.ndarray = None,
-        timestamps: np.ndarray = None,
-        readout_calibration: 'BitstringAccumulator' = None,
+        simul_settings: list[InitObsSetting],
+        qubit_to_index: Mapping[cirq.Qid, int],
+        bitstrings: np.ndarray | None = None,
+        chunksizes: np.ndarray | None = None,
+        timestamps: np.ndarray | None = None,
+        readout_calibration: BitstringAccumulator | None = None,
     ):
         self._meas_spec = meas_spec
         self._simul_settings = simul_settings
         self._qubit_to_index = qubit_to_index
         self._readout_calibration = readout_calibration
 
+        self.bitstrings: np.ndarray[tuple[int, ...], np.dtype[np.uint8]]
         if bitstrings is None:
             n_bits = len(qubit_to_index)
             self.bitstrings = np.zeros((0, n_bits), dtype=np.uint8)
         else:
             self.bitstrings = np.asarray(bitstrings, dtype=np.uint8)
 
+        self.chunksizes: np.ndarray[tuple[int, ...], np.dtype[np.int64]]
         if chunksizes is None:
             self.chunksizes = np.zeros((0,), dtype=np.int64)
         else:
             self.chunksizes = np.asarray(chunksizes, dtype=np.int64)
 
+        self.timestamps: np.ndarray[tuple[int, ...], np.dtype[np.datetime64]]
         if timestamps is None:
             self.timestamps = np.zeros((0,), dtype='datetime64[us]')
         else:
@@ -270,7 +297,7 @@ class BitstringAccumulator:
         return len(self.bitstrings)
 
     @property
-    def results(self):
+    def results(self) -> Iterable[ObservableMeasuredResult]:
         """Yield individual setting results as `ObservableMeasuredResult`
         objects."""
         for setting in self._simul_settings:
@@ -290,10 +317,7 @@ class BitstringAccumulator:
         after chaining these results with those from other BitstringAccumulators.
         """
         for result in self.results:
-            record = dataclasses.asdict(result)
-            del record['circuit_params']
-            record.update(**self._meas_spec.circuit_params)
-            yield record
+            yield result.as_dict()
 
     def _json_dict_(self):
         from cirq.study.result import _pack_digits
@@ -302,7 +326,6 @@ class BitstringAccumulator:
             return _pack_digits(a, pack_bits='never')[0]
 
         return {
-            'cirq_type': self.__class__.__name__,
             'meas_spec': self.meas_spec,
             'simul_settings': self.simul_settings,
             'qubit_to_index': list(self.qubit_to_index.items()),
@@ -392,6 +415,9 @@ class BitstringAccumulator:
 
         Args:
             atol: The absolute tolerance for asserting coefficients are real.
+
+        Raises:
+            ValueError: If there are no measurements.
         """
         if len(self.bitstrings) == 0:
             raise ValueError("No measurements")
@@ -438,8 +464,11 @@ class BitstringAccumulator:
         for `np.var`.
 
         Args:
-            setting: The setting
+            setting: The initial state and observable.
             atol: The absolute tolerance for asserting coefficients are real.
+
+        Raises:
+            ValueError: If there were no measurements.
         """
         if len(self.bitstrings) == 0:
             raise ValueError("No measurements")
@@ -466,7 +495,7 @@ class BitstringAccumulator:
 
             # https://en.wikipedia.org/wiki/Propagation_of_uncertainty#Example_formulae
             # assume cov(a,b) = 0, otherwise there would be another term.
-            var = f ** 2 * (var_a / (a ** 2) + var_b / (b ** 2))
+            var = f**2 * (var_a / (a**2) + var_b / (b**2))
 
         return var
 
@@ -499,10 +528,9 @@ class BitstringAccumulator:
 
 
 def flatten_grouped_results(
-    grouped_results: List[BitstringAccumulator],
-) -> List[ObservableMeasuredResult]:
-    """Flatten results from a collection of BitstringAccumulators into a list
-    of ObservableMeasuredResult.
+    grouped_results: list[BitstringAccumulator],
+) -> list[ObservableMeasuredResult]:
+    """Flatten a collection of BitstringAccumulators into a list of ObservableMeasuredResult.
 
     Raw results are contained in BitstringAccumulator which contains
     structure related to how the observables were measured (i.e. their

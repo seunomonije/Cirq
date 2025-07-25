@@ -12,40 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Types and methods related to building and optimizing sequenced circuits."""
+"""Circuit classes, mutators, and outputs."""
 
-from cirq.circuits.text_diagram_drawer import (
-    TextDiagramDrawer,
-)
-
-from cirq.circuits.qasm_output import (
-    QasmOutput,
-)
-
-from cirq.circuits.quil_output import (
-    QuilOutput,
-)
+from cirq.circuits.text_diagram_drawer import TextDiagramDrawer as TextDiagramDrawer
+from cirq.circuits.qasm_output import QasmOutput as QasmOutput
 
 from cirq.circuits.circuit import (
-    AbstractCircuit,
-    Alignment,
-    Circuit,
+    AbstractCircuit as AbstractCircuit,
+    Alignment as Alignment,
+    Circuit as Circuit,
 )
-from cirq.circuits.circuit_dag import (
-    CircuitDag,
-    Unique,
-)
-from cirq.circuits.circuit_operation import (
-    CircuitOperation,
-)
-from cirq.circuits.frozen_circuit import (
-    FrozenCircuit,
-)
-from cirq.circuits.insert_strategy import (
-    InsertStrategy,
-)
+from cirq.circuits.circuit_operation import CircuitOperation as CircuitOperation
+from cirq.circuits.frozen_circuit import FrozenCircuit as FrozenCircuit
+from cirq.circuits.insert_strategy import InsertStrategy as InsertStrategy
+
+from cirq.circuits.moment import Moment as Moment
 
 from cirq.circuits.optimization_pass import (
-    PointOptimizer,
-    PointOptimizationSummary,
+    PointOptimizer as PointOptimizer,
+    PointOptimizationSummary as PointOptimizationSummary,
 )

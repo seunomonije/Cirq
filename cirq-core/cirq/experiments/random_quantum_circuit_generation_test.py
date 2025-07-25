@@ -11,8 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 import itertools
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, cast
+from typing import Callable, cast, Iterable, Sequence
 
 import networkx as nx
 import numpy as np
@@ -24,15 +27,15 @@ from cirq.experiments import (
     random_rotations_between_grid_interaction_layers_circuit,
 )
 from cirq.experiments.random_quantum_circuit_generation import (
-    random_rotations_between_two_qubit_circuit,
     generate_library_of_2q_circuits,
-    get_random_combinations_for_device,
-    get_random_combinations_for_pairs,
-    get_random_combinations_for_layer_circuit,
     get_grid_interaction_layer_circuit,
+    get_random_combinations_for_device,
+    get_random_combinations_for_layer_circuit,
+    get_random_combinations_for_pairs,
+    random_rotations_between_two_qubit_circuit,
 )
 
-SINGLE_QUBIT_LAYER = Dict[cirq.GridQubit, Optional[cirq.Gate]]
+SINGLE_QUBIT_LAYER = dict[cirq.GridQubit, cirq.Gate | None]
 
 
 def test_random_rotation_between_two_qubit_circuit():
@@ -74,10 +77,7 @@ X^0.5         PhX(0.25)^0.5
 
 def test_generate_library_of_2q_circuits():
     circuits = generate_library_of_2q_circuits(
-        n_library_circuits=5,
-        two_qubit_gate=cirq.CNOT,
-        max_cycle_depth=13,
-        random_state=9,
+        n_library_circuits=5, two_qubit_gate=cirq.CNOT, max_cycle_depth=13, random_state=9
     )
     assert len(circuits) == 5
     for circuit in circuits:
@@ -92,7 +92,7 @@ def test_generate_library_of_2q_circuits():
 def test_generate_library_of_2q_circuits_custom_qubits():
     circuits = generate_library_of_2q_circuits(
         n_library_circuits=5,
-        two_qubit_gate=cirq.ISWAP ** 0.5,
+        two_qubit_gate=cirq.ISWAP**0.5,
         max_cycle_depth=13,
         q0=cirq.GridQubit(9, 9),
         q1=cirq.NamedQubit('hi mom'),
@@ -104,7 +104,7 @@ def test_generate_library_of_2q_circuits_custom_qubits():
         for m1, m2 in zip(circuit.moments[::2], circuit.moments[1::2]):
             assert len(m1.operations) == 2  # single qubit layer
             assert len(m2.operations) == 1
-            assert m2.operations[0].gate == cirq.ISWAP ** 0.5
+            assert m2.operations[0].gate == cirq.ISWAP**0.5
 
 
 def _gridqubits_to_graph_device(qubits: Iterable[cirq.GridQubit]):
@@ -121,10 +121,7 @@ def test_get_random_combinations_for_device():
     graph = _gridqubits_to_graph_device(cirq.GridQubit.rect(3, 3))
     n_combinations = 4
     combinations = get_random_combinations_for_device(
-        n_library_circuits=3,
-        n_combinations=n_combinations,
-        device_graph=graph,
-        random_state=99,
+        n_library_circuits=3, n_combinations=n_combinations, device_graph=graph, random_state=99
     )
     assert len(combinations) == 4  # degree-four graph
     for i, comb in enumerate(combinations):
@@ -143,10 +140,7 @@ def test_get_random_combinations_for_small_device():
     graph = _gridqubits_to_graph_device(cirq.GridQubit.rect(3, 1))
     n_combinations = 4
     combinations = get_random_combinations_for_device(
-        n_library_circuits=3,
-        n_combinations=n_combinations,
-        device_graph=graph,
-        random_state=99,
+        n_library_circuits=3, n_combinations=n_combinations, device_graph=graph, random_state=99
     )
     assert len(combinations) == 2  # 3x1 device only fits two layers
 
@@ -208,7 +202,7 @@ def test_get_grid_interaction_layer_circuit():
     graph = _gridqubits_to_graph_device(cirq.GridQubit.rect(3, 3))
     layer_circuit = get_grid_interaction_layer_circuit(graph)
 
-    sqrtisw = cirq.ISWAP ** 0.5
+    sqrtisw = cirq.ISWAP**0.5
     gq = cirq.GridQubit
     should_be = cirq.Circuit(
         # Vertical
@@ -269,11 +263,35 @@ class FakeSycamoreGate(cirq.FSimGate):
     'two_qubit_layers_slice',
     (
         (
+            (cirq.q(0, 0), cirq.q(0, 1), cirq.q(0, 2)),
+            4,
+            lambda a, b, _: cirq.CZ(a, b),
+            [[(cirq.q(0, 0), cirq.q(0, 1))], [(cirq.q(0, 1), cirq.q(0, 2))]],
+            (cirq.X**0.5,),
+            True,
+            1234,
+            9,
+            slice(None, None, 2),
+            slice(1, None, 2),
+        ),
+        (
+            (cirq.q(0, 0), cirq.q(0, 1), cirq.q(0, 2)),
+            4,
+            lambda a, b, _: cirq.CZ(a, b),
+            [[(cirq.q(0, 1), cirq.q(0, 0))], [(cirq.q(0, 1), cirq.q(0, 2))]],
+            (cirq.X**0.5,),
+            True,
+            1234,
+            9,
+            slice(None, None, 2),
+            slice(1, None, 2),
+        ),
+        (
             cirq.GridQubit.rect(4, 3),
             20,
             lambda a, b, _: cirq.CZ(a, b),
             cirq.experiments.GRID_STAGGERED_PATTERN,
-            (cirq.X ** 0.5, cirq.Y ** 0.5, cirq.Z ** 0.5),
+            (cirq.X**0.5, cirq.Y**0.5, cirq.Z**0.5),
             True,
             1234,
             41,
@@ -285,7 +303,7 @@ class FakeSycamoreGate(cirq.FSimGate):
             20,
             lambda a, b, _: FakeSycamoreGate()(a, b),
             cirq.experiments.HALF_GRID_STAGGERED_PATTERN,
-            (cirq.X ** 0.5, cirq.Y ** 0.5, cirq.Z ** 0.5),
+            (cirq.X**0.5, cirq.Y**0.5, cirq.Z**0.5),
             True,
             1234,
             41,
@@ -297,7 +315,7 @@ class FakeSycamoreGate(cirq.FSimGate):
             21,
             lambda a, b, _: cirq.CZ(a, b),
             cirq.experiments.GRID_ALIGNED_PATTERN,
-            (cirq.X ** 0.5, cirq.Y ** 0.5, cirq.Z ** 0.5),
+            (cirq.X**0.5, cirq.Y**0.5, cirq.Z**0.5),
             True,
             1234,
             43,
@@ -309,7 +327,7 @@ class FakeSycamoreGate(cirq.FSimGate):
             22,
             _cz_with_adjacent_z_rotations,
             cirq.experiments.GRID_STAGGERED_PATTERN,
-            (cirq.X ** 0.5, cirq.Y ** 0.5, cirq.Z ** 0.5),
+            (cirq.X**0.5, cirq.Y**0.5, cirq.Z**0.5),
             True,
             1234,
             89,
@@ -321,7 +339,7 @@ class FakeSycamoreGate(cirq.FSimGate):
             23,
             lambda a, b, _: cirq.CZ(a, b),
             cirq.experiments.GRID_ALIGNED_PATTERN,
-            (cirq.X ** 0.5, cirq.Y ** 0.5, cirq.Z ** 0.5),
+            (cirq.X**0.5, cirq.Y**0.5, cirq.Z**0.5),
             False,
             1234,
             46,
@@ -333,7 +351,7 @@ class FakeSycamoreGate(cirq.FSimGate):
             24,
             lambda a, b, _: cirq.CZ(a, b),
             cirq.experiments.GRID_ALIGNED_PATTERN,
-            (cirq.X ** 0.5, cirq.X ** 0.5),
+            (cirq.X**0.5, cirq.X**0.5),
             True,
             1234,
             49,
@@ -351,7 +369,7 @@ def test_random_rotations_between_grid_interaction_layers(
     pattern: Sequence[GridInteractionLayer],
     single_qubit_gates: Sequence[cirq.Gate],
     add_final_single_qubit_layer: bool,
-    seed: 'cirq.RANDOM_STATE_OR_SEED_LIKE',
+    seed: cirq.RANDOM_STATE_OR_SEED_LIKE,
     expected_circuit_length: int,
     single_qubit_layers_slice: slice,
     two_qubit_layers_slice: slice,
@@ -386,9 +404,9 @@ def test_grid_interaction_layer_repr():
 
 
 def _validate_single_qubit_layers(
-    qubits: Set[cirq.GridQubit], moments: Sequence[cirq.Moment], non_repeating_layers: bool = True
+    qubits: set[cirq.GridQubit], moments: Sequence[cirq.Moment], non_repeating_layers: bool = True
 ) -> None:
-    previous_single_qubit_gates = {q: None for q in qubits}  # type: SINGLE_QUBIT_LAYER
+    previous_single_qubit_gates: SINGLE_QUBIT_LAYER = {q: None for q in qubits}
 
     for moment in moments:
         # All qubits are acted upon
@@ -404,7 +422,7 @@ def _validate_single_qubit_layers(
 
 
 def _validate_two_qubit_layers(
-    qubits: Set[cirq.GridQubit],
+    qubits: set[cirq.GridQubit],
     moments: Sequence[cirq.Moment],
     pattern: Sequence[cirq.experiments.GridInteractionLayer],
 ) -> None:
@@ -415,7 +433,10 @@ def _validate_two_qubit_layers(
             # Operation is two-qubit
             assert cirq.num_qubits(op) == 2
             # Operation fits pattern
-            assert op.qubits in pattern[i % len(pattern)]
+            assert (
+                op.qubits in pattern[i % len(pattern)]
+                or op.qubits[::-1] in pattern[i % len(pattern)]
+            )
             active_pairs.add(op.qubits)
         # All interactions that should be in this layer are present
         assert all(
@@ -426,12 +447,12 @@ def _validate_two_qubit_layers(
 
 
 def _coupled_qubit_pairs(
-    qubits: Set['cirq.GridQubit'],
-) -> List[Tuple['cirq.GridQubit', 'cirq.GridQubit']]:
+    qubits: set[cirq.GridQubit],
+) -> list[tuple[cirq.GridQubit, cirq.GridQubit]]:
     pairs = []
     for qubit in qubits:
 
-        def add_pair(neighbor: 'cirq.GridQubit'):
+        def add_pair(neighbor: cirq.GridQubit):
             if neighbor in qubits:
                 pairs.append((qubit, neighbor))
 
@@ -439,3 +460,20 @@ def _coupled_qubit_pairs(
         add_pair(cirq.GridQubit(qubit.row + 1, qubit.col))
 
     return pairs
+
+
+def test_generate_library_of_2q_circuits_with_tags():
+    circuits = generate_library_of_2q_circuits(
+        n_library_circuits=5,
+        two_qubit_gate=cirq.FSimGate(3, 4),
+        max_cycle_depth=13,
+        random_state=9,
+        tags=('test_tag',),
+    )
+    assert len(circuits) == 5
+    for circuit in circuits:
+        for op in circuit.all_operations():
+            if cirq.num_qubits(op) == 1:
+                continue
+            assert op.tags == ('test_tag',)
+            assert op.gate == cirq.FSimGate(3, 4)

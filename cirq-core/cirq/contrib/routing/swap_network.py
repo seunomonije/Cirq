@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Iterable, TYPE_CHECKING
+from __future__ import annotations
 
-from cirq import ops
+from typing import Iterable, TYPE_CHECKING
+
 import cirq.contrib.acquaintance as cca
+from cirq import ops
 
 if TYPE_CHECKING:
     import cirq
@@ -35,30 +37,24 @@ class SwapNetwork:
         initial_mapping: The initial mapping from physical to logical qubits.
     """
 
-    def __init__(
-        self, circuit: 'cirq.Circuit', initial_mapping: Dict['cirq.Qid', 'cirq.Qid']
-    ) -> None:
+    def __init__(self, circuit: cirq.Circuit, initial_mapping: dict[cirq.Qid, cirq.Qid]) -> None:
         if not all(isinstance(i, ops.Qid) for I in initial_mapping.items() for i in I):
             raise ValueError('Mapping must be from Qids to Qids.')
         self.circuit = circuit
         self.initial_mapping = initial_mapping
 
-    def final_mapping(self) -> Dict['cirq.Qid', 'cirq.Qid']:
+    def final_mapping(self) -> dict[cirq.Qid, cirq.Qid]:
         mapping = dict(self.initial_mapping)
         cca.update_mapping(mapping, self.circuit.all_operations())
         return mapping
 
-    def get_logical_operations(self) -> Iterable['cirq.Operation']:
+    def get_logical_operations(self) -> Iterable[cirq.Operation]:
         return cca.get_logical_operations(self.circuit.all_operations(), self.initial_mapping)
 
     def __eq__(self, other) -> bool:
         if not isinstance(other, type(self)):
             return NotImplemented
         return self.circuit == other.circuit and self.initial_mapping == other.initial_mapping
-
-    @property
-    def device(self) -> 'cirq.Device':
-        return self.circuit.device
 
     def __str__(self) -> str:
         circuit = self.circuit.copy()

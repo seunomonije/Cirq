@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple
+from __future__ import annotations
 
+import importlib.util
 import warnings
+
 import numpy as np
 import pytest
 
@@ -41,21 +43,18 @@ class Fixed(cirq.Operation):
 
 
 class QuditGate(cirq.Gate):
-    def _qid_shape_(self) -> Tuple[int, ...]:
+    def _qid_shape_(self) -> tuple[int, ...]:
         return (3, 3)
 
     def _unitary_(self):
         return np.eye(9)
 
-    def _qasm_(self, args: cirq.QasmArgs, qubits: Tuple[cirq.Qid, ...]):
+    def _qasm_(self, args: cirq.QasmArgs, qubits: tuple[cirq.Qid, ...]):
         return NotImplemented
 
 
-def test_assert_qasm_is_consistent_with_unitary():
-    try:
-        import qiskit as _
-    except ImportError:
-        # coverage: ignore
+def test_assert_qasm_is_consistent_with_unitary() -> None:
+    if importlib.util.find_spec('qiskit') is None:  # pragma: no cover
         warnings.warn(
             "Skipped test_assert_qasm_is_consistent_with_unitary "
             "because qiskit isn't installed to verify against."
@@ -84,7 +83,7 @@ def test_assert_qasm_is_consistent_with_unitary():
     )
 
     # Checks that code is valid.
-    with pytest.raises(AssertionError, match='Check your OPENQASM'):
+    with pytest.raises(AssertionError, match='QASM not consistent'):
         cirq.testing.assert_qasm_is_consistent_with_unitary(
             Fixed(np.array([[1, 0], [0, -1]]), 'JUNK$&*@($#::=[];')
         )

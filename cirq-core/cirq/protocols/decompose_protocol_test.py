@@ -11,6 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
+import itertools
+from unittest import mock
+
 import pytest
 
 import cirq
@@ -57,9 +63,9 @@ class DecomposeQuditGate:
         yield cirq.identity_each(*qids)
 
 
-def test_decompose_once():
+def test_decompose_once() -> None:
     # No default value results in descriptive error.
-    with pytest.raises(TypeError, match='no _decompose_ method'):
+    with pytest.raises(TypeError, match='no _decompose_with_context_ or _decompose_ method'):
         _ = cirq.decompose_once(NoMethod())
     with pytest.raises(TypeError, match='returned NotImplemented or None'):
         _ = cirq.decompose_once(DecomposeNotImplemented())
@@ -84,11 +90,11 @@ def test_decompose_once():
     ]
 
 
-def test_decompose_once_with_qubits():
+def test_decompose_once_with_qubits() -> None:
     qs = cirq.LineQubit.range(3)
 
     # No default value results in descriptive error.
-    with pytest.raises(TypeError, match='no _decompose_ method'):
+    with pytest.raises(TypeError, match='no _decompose_with_context_ or _decompose_ method'):
         _ = cirq.decompose_once_with_qubits(NoMethod(), qs)
     with pytest.raises(TypeError, match='returned NotImplemented or None'):
         _ = cirq.decompose_once_with_qubits(DecomposeNotImplemented(), qs)
@@ -130,7 +136,7 @@ def test_decompose_once_with_qubits():
     ) == list(cirq.X.on_each(*qs)) + list(cirq.Y.on_each(*qs))
 
 
-def test_decompose_general():
+def test_decompose_general() -> None:
     a, b, c = cirq.LineQubit.range(3)
     no_method = NoMethod()
     assert cirq.decompose(no_method) == [no_method]
@@ -145,7 +151,7 @@ def test_decompose_general():
     )
 
 
-def test_decompose_keep():
+def test_decompose_keep() -> None:
     a, b = cirq.LineQubit.range(2)
 
     # Recursion can be stopped.
@@ -173,7 +179,7 @@ def test_decompose_keep():
     assert cirq.decompose([[[cirq.SWAP(a, b)]]], keep=lambda _: True) == [cirq.SWAP(a, b)]
 
 
-def test_decompose_on_stuck_raise():
+def test_decompose_on_stuck_raise() -> None:
     a, b = cirq.LineQubit.range(2)
     no_method = NoMethod()
 
@@ -182,6 +188,7 @@ def test_decompose_on_stuck_raise():
         _ = cirq.decompose(NoMethod(), keep=lambda _: False)
     # Unless there's no operations to be unhappy about.
     assert cirq.decompose([], keep=lambda _: False) == []
+    assert cirq.decompose([], on_stuck_raise=None) == []
     # Or you say you're fine.
     assert cirq.decompose(no_method, keep=lambda _: False, on_stuck_raise=None) == [no_method]
     assert cirq.decompose(no_method, keep=lambda _: False, on_stuck_raise=lambda _: None) == [
@@ -199,12 +206,10 @@ def test_decompose_on_stuck_raise():
 
     # There's a nice warning if you specify `on_stuck_raise` but not `keep`.
     with pytest.raises(ValueError, match='on_stuck_raise'):
-        assert cirq.decompose([], on_stuck_raise=None)
-    with pytest.raises(ValueError, match='on_stuck_raise'):
         assert cirq.decompose([], on_stuck_raise=TypeError('x'))
 
 
-def test_decompose_intercept():
+def test_decompose_intercept() -> None:
     a = cirq.NamedQubit('a')
     b = cirq.NamedQubit('b')
 
@@ -223,8 +228,25 @@ def test_decompose_intercept():
     )
     assert actual == [cirq.CNOT(a, b), cirq.CNOT(b, a), cirq.CNOT(a, b)]
 
+    # Accepts a context, when provided.
+    def _intercept_with_context(
+        op: cirq.Operation, context: cirq.DecompositionContext | None = None
+    ):
+        assert context is not None
+        if op.gate == cirq.SWAP:
+            q = context.qubit_manager.qalloc(1)
+            a, b = op.qubits
+            return [cirq.X(a), cirq.X(*q), cirq.X(b)]
+        return NotImplemented
 
-def test_decompose_preserving_structure():
+    context = cirq.DecompositionContext(cirq.ops.SimpleQubitManager())
+    actual = cirq.decompose(
+        cirq.SWAP(a, b), intercepting_decomposer=_intercept_with_context, context=context
+    )
+    assert actual == [cirq.X(a), cirq.X(cirq.ops.CleanQubit(0)), cirq.X(b)]
+
+
+def test_decompose_preserving_structure() -> None:
     a, b = cirq.LineQubit.range(2)
     fc1 = cirq.FrozenCircuit(cirq.SWAP(a, b), cirq.FSimGate(0.1, 0.2).on(a, b))
     cop1_1 = cirq.CircuitOperation(fc1).with_tags('test_tag')
@@ -252,7 +274,7 @@ def test_decompose_preserving_structure():
 
 # Test both intercepting and fallback decomposers.
 @pytest.mark.parametrize('decompose_mode', ['intercept', 'fallback'])
-def test_decompose_preserving_structure_forwards_args(decompose_mode):
+def test_decompose_preserving_structure_forwards_args(decompose_mode) -> None:
     a, b = cirq.LineQubit.range(2)
     fc1 = cirq.FrozenCircuit(cirq.SWAP(a, b), cirq.FSimGate(0.1, 0.2).on(a, b))
     cop1_1 = cirq.CircuitOperation(fc1).with_tags('test_tag')
@@ -262,17 +284,13 @@ def test_decompose_preserving_structure_forwards_args(decompose_mode):
 
     circuit = cirq.Circuit(cop2, cirq.measure(a, b, key='m'))
 
-    def keep_func(op: 'cirq.Operation'):
+    def keep_func(op: cirq.Operation):
         # Only decompose SWAP and X.
         return not isinstance(op.gate, (cirq.SwapPowGate, cirq.XPowGate))
 
-    def x_to_hzh(op: 'cirq.Operation'):
+    def x_to_hzh(op: cirq.Operation):
         if isinstance(op.gate, cirq.XPowGate) and op.gate.exponent == 1:
-            return [
-                cirq.H(*op.qubits),
-                cirq.Z(*op.qubits),
-                cirq.H(*op.qubits),
-            ]
+            return [cirq.H(*op.qubits), cirq.Z(*op.qubits), cirq.H(*op.qubits)]
 
     actual = cirq.Circuit(
         cirq.decompose(
@@ -281,16 +299,12 @@ def test_decompose_preserving_structure_forwards_args(decompose_mode):
             intercepting_decomposer=x_to_hzh if decompose_mode == 'intercept' else None,
             fallback_decomposer=x_to_hzh if decompose_mode == 'fallback' else None,
             preserve_structure=True,
-        ),
+        )
     )
 
     # This should keep the CircuitOperations but decompose their SWAPs.
     fc1_decomp = cirq.FrozenCircuit(
-        cirq.decompose(
-            fc1,
-            keep=keep_func,
-            fallback_decomposer=x_to_hzh,
-        )
+        cirq.decompose(fc1, keep=keep_func, fallback_decomposer=x_to_hzh)
     )
     expected = cirq.Circuit(
         cirq.CircuitOperation(
@@ -305,3 +319,138 @@ def test_decompose_preserving_structure_forwards_args(decompose_mode):
         cirq.measure(a, b, key='m'),
     )
     assert actual == expected
+
+
+def test_decompose_tagged_operation() -> None:
+    op = cirq.TaggedOperation(
+        cirq.CircuitOperation(
+            circuit=cirq.FrozenCircuit(
+                [cirq.Moment(cirq.SWAP(cirq.LineQubit(0), cirq.LineQubit(1)))]
+            )
+        ),
+        'tag',
+    )
+    assert cirq.decompose_once(op) == cirq.decompose_once(op.untagged)
+
+
+class RecursiveDecompose(cirq.Gate):
+    def __init__(
+        self,
+        recurse: bool = True,
+        mock_qm=mock.Mock(spec=cirq.QubitManager),
+        with_context: bool = False,
+    ):
+        self.recurse = recurse
+        self.mock_qm = mock_qm
+        self.with_context = with_context
+
+    def _num_qubits_(self) -> int:
+        return 2
+
+    def _decompose_impl(self, qubits, mock_qm: mock.Mock):
+        mock_qm.qalloc(self.recurse)
+        yield (
+            RecursiveDecompose(
+                recurse=False, mock_qm=self.mock_qm, with_context=self.with_context
+            ).on(*qubits)
+            if self.recurse
+            else cirq.Z.on_each(*qubits)
+        )
+        mock_qm.qfree(self.recurse)
+
+    def _decompose_(self, qubits):
+        if self.with_context:
+            assert False  # pragma: no cover
+        else:
+            return self._decompose_impl(qubits, self.mock_qm)
+
+    def _decompose_with_context_(self, qubits, context):
+        if self.with_context:
+            qm = self.mock_qm if context is None else context.qubit_manager
+            return self._decompose_impl(qubits, qm)
+        else:
+            return NotImplemented
+
+    def _has_unitary_(self):
+        return True
+
+
+@pytest.mark.parametrize('with_context', [True, False])
+def test_decompose_recursive_dfs(with_context: bool) -> None:
+    expected_calls = [
+        mock.call.qalloc(True),
+        mock.call.qalloc(False),
+        mock.call.qfree(False),
+        mock.call.qfree(True),
+    ]
+    mock_qm = mock.Mock(spec=cirq.QubitManager)
+    context_qm = mock.Mock(spec=cirq.QubitManager)
+    gate = RecursiveDecompose(mock_qm=mock_qm, with_context=with_context)
+    q = cirq.LineQubit.range(3)
+    gate_op = gate.on(*q[:2])
+    tagged_op = gate_op.with_tags("custom tag")
+    controlled_op = gate_op.controlled_by(q[2])
+    classically_controlled_op = gate_op.with_classical_controls('key')
+    moment = cirq.Moment(gate_op)
+    circuit = cirq.Circuit(moment)
+    for val in [gate_op, tagged_op, controlled_op, classically_controlled_op, moment, circuit]:
+        mock_qm.reset_mock()
+        _ = cirq.decompose(val, context=cirq.DecompositionContext(qubit_manager=mock_qm))
+        assert mock_qm.method_calls == expected_calls
+
+        mock_qm.reset_mock()
+        context_qm.reset_mock()
+        _ = cirq.decompose(val, context=cirq.DecompositionContext(context_qm))
+        assert (
+            context_qm.method_calls == expected_calls
+            if with_context
+            else mock_qm.method_calls == expected_calls
+        )
+
+
+class G1(cirq.Gate):
+    def _num_qubits_(self) -> int:
+        return 1
+
+    def _decompose_with_context_(self, qubits, context):
+        yield cirq.CNOT(qubits[0], context.qubit_manager.qalloc(1)[0])
+
+
+class G2(cirq.Gate):
+    def _num_qubits_(self) -> int:
+        return 1
+
+    def _decompose_with_context_(self, qubits, context):
+        yield G1()(*context.qubit_manager.qalloc(1))
+
+
+@mock.patch('cirq.protocols.decompose_protocol._CONTEXT_COUNTER', itertools.count())
+def test_successive_decompose_once_succeed() -> None:
+    op = G2()(cirq.NamedQubit('q'))
+    d1 = cirq.decompose_once(op)
+    d2 = cirq.decompose_once(d1[0])
+    assert d2 == [
+        cirq.CNOT(
+            cirq.ops.CleanQubit(0, prefix='_decompose_protocol_0'),
+            cirq.ops.CleanQubit(0, prefix='_decompose_protocol_1'),
+        )
+    ]
+
+
+def test_decompose_without_context_succeed() -> None:
+    op = G2()(cirq.NamedQubit('q'))
+    assert cirq.decompose(op, keep=lambda op: op.gate is cirq.CNOT) == [
+        cirq.CNOT(
+            cirq.ops.CleanQubit(0, prefix='_decompose_protocol'),
+            cirq.ops.CleanQubit(1, prefix='_decompose_protocol'),
+        )
+    ]
+
+
+def test_extracting_global_phases() -> None:
+    qm = cirq.SimpleQubitManager()
+    context = cirq.DecompositionContext(qm)
+    new_context = context.extracting_global_phases()
+    assert not context.extract_global_phases
+    assert new_context.extract_global_phases
+    assert new_context.qubit_manager is qm

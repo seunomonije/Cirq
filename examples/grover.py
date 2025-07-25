@@ -1,3 +1,4 @@
+# pylint: disable=wrong-or-nonexistent-copyright-notice
 """Demonstrates Grover algorithm.
 
 The Grover algorithm takes a black-box oracle implementing a function
@@ -27,7 +28,10 @@ Found a match: True
 
 """
 
+from __future__ import annotations
+
 import random
+
 import cirq
 
 
@@ -54,13 +58,7 @@ def make_grover_circuit(input_qubits, output_qubit, oracle):
     c = cirq.Circuit()
 
     # Initialize qubits.
-    c.append(
-        [
-            cirq.X(output_qubit),
-            cirq.H(output_qubit),
-            cirq.H.on_each(*input_qubits),
-        ]
-    )
+    c.append([cirq.X(output_qubit), cirq.H(output_qubit), cirq.H.on_each(*input_qubits)])
 
     # Query oracle.
     c.append(oracle)

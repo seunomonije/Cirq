@@ -11,7 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from __future__ import annotations
+
 from typing import cast
+
+import sympy
 
 import cirq
 from cirq.study import sweeps
@@ -50,14 +55,14 @@ def _sweep_zip_to_proto(sweep: cirq.Zip) -> params_pb2.ZipSweep:
 
 
 def _single_param_sweep_to_proto(sweep: sweeps.SingleSweep) -> params_pb2.SingleSweep:
-    if isinstance(sweep, cirq.Linspace):
+    if isinstance(sweep, cirq.Linspace) and not isinstance(sweep.key, sympy.Expr):
         return params_pb2.SingleSweep(
             parameter_key=sweep.key,
             linspace=params_pb2.Linspace(
                 first_point=sweep.start, last_point=sweep.stop, num_points=sweep.length
             ),
         )
-    elif isinstance(sweep, cirq.Points):
+    elif isinstance(sweep, cirq.Points) and not isinstance(sweep.key, sympy.Expr):
         return params_pb2.SingleSweep(
             parameter_key=sweep.key, points=params_pb2.Points(points=sweep.points)
         )
@@ -81,9 +86,7 @@ def _sweep_from_param_sweep_zip_proto(param_sweep_zip: params_pb2.ZipSweep) -> c
     return cirq.UnitSweep
 
 
-def _sweep_from_single_param_sweep_proto(
-    single_param_sweep: params_pb2.SingleSweep,
-) -> cirq.Sweep:
+def _sweep_from_single_param_sweep_proto(single_param_sweep: params_pb2.SingleSweep) -> cirq.Sweep:
     key = single_param_sweep.parameter_key
     if single_param_sweep.HasField('points'):
         points = single_param_sweep.points

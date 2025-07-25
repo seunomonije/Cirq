@@ -14,21 +14,26 @@
 
 # This is more of a placeholder for now, we can add
 # official color schemes in follow-ups.
+
+from __future__ import annotations
+
 import abc
 import dataclasses
-from typing import Iterable, List, Optional
+from typing import Iterable
+
 import cirq
+from cirq.protocols.circuit_diagram_info_protocol import CircuitDiagramInfoArgs
 
 
 @dataclasses.dataclass
 class SymbolInfo:
     """Organizes information about a symbol."""
 
-    labels: List[str]
-    colors: List[str]
+    labels: list[str]
+    colors: list[str]
 
     @staticmethod
-    def unknown_operation(num_qubits: int) -> 'SymbolInfo':
+    def unknown_operation(num_qubits: int) -> SymbolInfo:
         """Generates a SymbolInfo object for an unknown operation.
 
         Args:
@@ -46,11 +51,11 @@ class SymbolResolver(metaclass=abc.ABCMeta):
     about how a particular symbol should be displayed in the 3D circuit
     """
 
-    def __call__(self, operation: cirq.Operation) -> Optional[SymbolInfo]:
+    def __call__(self, operation: cirq.Operation) -> SymbolInfo | None:
         return self.resolve(operation)
 
     @abc.abstractmethod
-    def resolve(self, operation: cirq.Operation) -> Optional[SymbolInfo]:
+    def resolve(self, operation: cirq.Operation) -> SymbolInfo | None:
         """Converts cirq.Operation objects into SymbolInfo objects for serialization."""
 
 
@@ -71,7 +76,7 @@ class DefaultResolver(SymbolResolver):
         'T': '#CBC3E3',
     }
 
-    def resolve(self, operation: cirq.Operation) -> Optional[SymbolInfo]:
+    def resolve(self, operation: cirq.Operation) -> SymbolInfo | None:
         """Checks for the _circuit_diagram_info attribute of the operation,
         and if it exists, build the symbol information from it. Otherwise,
         builds symbol info for an unknown operation.
@@ -80,11 +85,15 @@ class DefaultResolver(SymbolResolver):
             operation: the cirq.Operation object to resolve
         """
         try:
-            wire_symbols = cirq.circuit_diagram_info(operation).wire_symbols
+            info = cirq.circuit_diagram_info(operation)
         except TypeError:
             return SymbolInfo.unknown_operation(cirq.num_qubits(operation))
 
-        symbol_info = SymbolInfo(list(wire_symbols), [])
+        wire_symbols = info.wire_symbols
+        symbol_exponent = info._wire_symbols_including_formatted_exponent(
+            CircuitDiagramInfoArgs.UNINFORMED_DEFAULT
+        )
+        symbol_info = SymbolInfo(list(symbol_exponent), [])
         for symbol in wire_symbols:
             symbol_info.colors.append(DefaultResolver._SYMBOL_COLORS.get(symbol, 'gray'))
 

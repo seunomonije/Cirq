@@ -11,11 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import AbstractSet, Any, Dict, Optional, Tuple, TYPE_CHECKING, Union
 
-import sympy
+from __future__ import annotations
 
-from cirq import value, protocols
+from typing import AbstractSet, Any, TYPE_CHECKING
+
+from cirq import protocols, value
 from cirq.ops import raw_types
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 
 @value.value_equality
 class WaitGate(raw_types.Gate):
-    """A single-qubit idle gate that represents waiting.
+    r"""An idle gate that represents waiting.
 
     In non-noisy simulators, this gate is just an identity gate. But noisy
     simulators and noise models may insert more error for longer waits.
@@ -32,17 +33,25 @@ class WaitGate(raw_types.Gate):
 
     def __init__(
         self,
-        duration: 'cirq.DURATION_LIKE',
-        num_qubits: Optional[int] = None,
-        qid_shape: Tuple[int, ...] = None,
+        duration: cirq.DURATION_LIKE | int,
+        num_qubits: int | None = None,
+        qid_shape: tuple[int, ...] | None = None,
     ) -> None:
         """Initialize a wait gate with the given duration.
 
         Args:
             duration: A constant or parameterized wait duration. This can be
                 an instance of `datetime.timedelta` or `cirq.Duration`.
+            num_qubits: The number of qubits the gate operates on. If None and `qid_shape` is None,
+                this defaults to one qubit.
+            qid_shape: Can be specified instead of `num_qubits` for the case that the gate should
+                act on qudits.
+
+        Raises:
+            ValueError: If the `qid_shape` provided is empty or `num_qubits` contradicts
+                `qid_shape`.
         """
-        self.duration = value.Duration(duration)
+        self._duration = value.Duration(duration)
         if not protocols.is_parameterized(self.duration) and self.duration < 0:
             raise ValueError('duration < 0')
         if qid_shape is None:
@@ -59,16 +68,23 @@ class WaitGate(raw_types.Gate):
             raise ValueError('len(qid_shape) != num_qubits')
         self._qid_shape = qid_shape
 
+    @property
+    def duration(self) -> cirq.Duration:
+        return self._duration
+
     def _is_parameterized_(self) -> bool:
         return protocols.is_parameterized(self.duration)
 
     def _parameter_names_(self) -> AbstractSet[str]:
         return protocols.parameter_names(self.duration)
 
-    def _resolve_parameters_(self, resolver: 'cirq.ParamResolver', recursive: bool) -> 'WaitGate':
-        return WaitGate(protocols.resolve_parameters(self.duration, resolver, recursive))
+    def _resolve_parameters_(self, resolver: cirq.ParamResolver, recursive: bool) -> WaitGate:
+        return WaitGate(
+            protocols.resolve_parameters(self.duration, resolver, recursive),
+            qid_shape=self._qid_shape,
+        )
 
-    def _qid_shape_(self) -> Tuple[int, ...]:
+    def _qid_shape_(self) -> tuple[int, ...]:
         return self._qid_shape
 
     def _has_unitary_(self) -> bool:
@@ -98,7 +114,7 @@ class WaitGate(raw_types.Gate):
     def __repr__(self) -> str:
         return f'cirq.WaitGate({repr(self.duration)})'
 
-    def _json_dict_(self) -> Dict[str, Any]:
+    def _json_dict_(self) -> dict[str, Any]:
         d = protocols.obj_to_dict_helper(self, ['duration'])
         if len(self._qid_shape) != 1:
             d['num_qubits'] = len(self._qid_shape)
@@ -117,17 +133,14 @@ class WaitGate(raw_types.Gate):
     def _value_equality_values_(self) -> Any:
         return self.duration
 
-    def _quil_(self, qubits: Tuple['cirq.Qid', ...], formatter: 'cirq.QuilFormatter'):
-        return 'WAIT\n'
-
 
 def wait(
-    *target: 'cirq.Qid',
-    duration: 'cirq.DURATION_LIKE' = None,
-    picos: Union[int, float, sympy.Basic] = 0,
-    nanos: Union[int, float, sympy.Basic] = 0,
-    micros: Union[int, float, sympy.Basic] = 0,
-    millis: Union[int, float, sympy.Basic] = 0,
+    *target: cirq.Qid,
+    duration: cirq.DURATION_LIKE = None,
+    picos: cirq.TParamVal = 0,
+    nanos: cirq.TParamVal = 0,
+    micros: cirq.TParamVal = 0,
+    millis: cirq.TParamVal = 0,
 ) -> raw_types.Operation:
     """Creates a WaitGate applied to all the given qubits.
 
@@ -136,19 +149,13 @@ def wait(
 
     Args:
         *target: The qubits that should wait.
-        value: Wait duration (see Duration).
+        duration: Wait duration (see Duration).
         picos: Picoseconds to wait (see Duration).
         nanos: Nanoseconds to wait (see Duration).
         micros: Microseconds to wait (see Duration).
         millis: Milliseconds to wait (see Duration).
     """
     return WaitGate(
-        duration=value.Duration(
-            duration,
-            picos=picos,
-            nanos=nanos,
-            micros=micros,
-            millis=millis,
-        ),
+        duration=value.Duration(duration, picos=picos, nanos=nanos, micros=micros, millis=millis),
         qid_shape=protocols.qid_shape(target),
     ).on(*target)

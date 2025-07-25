@@ -12,20 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from itertools import combinations, product
 from random import randint
 from string import ascii_lowercase as alphabet
-from typing import Optional, Sequence, Tuple
+from typing import Sequence
 
-from numpy.random import poisson
+import numpy
 import pytest
 
 import cirq
-import cirq.testing as ct
 import cirq.contrib.acquaintance as cca
+import cirq.testing as ct
 
 
-def test_acquaintance_gate_repr():
+def test_acquaintance_gate_repr() -> None:
     assert (
         repr(cca.AcquaintanceOpportunityGate(2))
         == 'cirq.contrib.acquaintance.AcquaintanceOpportunityGate'
@@ -33,7 +35,7 @@ def test_acquaintance_gate_repr():
     )
 
 
-def test_acquaintance_gate_text_diagram_info():
+def test_acquaintance_gate_text_diagram_info() -> None:
     qubits = [cirq.NamedQubit(s) for s in 'xyz']
     circuit = cirq.Circuit([cirq.Moment([cca.acquaint(*qubits)])])
     actual_text_diagram = circuit.to_text_diagram().strip()
@@ -47,11 +49,11 @@ z: ───█───
     assert actual_text_diagram == expected_text_diagram
 
 
-def test_acquaintance_gate_unknown_qubit_count():
+def test_acquaintance_gate_unknown_qubit_count() -> None:
     assert cirq.circuit_diagram_info(cca.acquaint, default=None) is None
 
 
-def test_swap_network_gate():
+def test_swap_network_gate() -> None:
     qubits = tuple(cirq.NamedQubit(s) for s in alphabet)
 
     acquaintance_size = 3
@@ -78,8 +80,7 @@ f: ───×(2,1)───
     ct.assert_has_diagram(swap_network, expected_text_diagram)
 
     no_decomp = lambda op: isinstance(op.gate, (cca.CircularShiftGate, cca.LinearPermutationGate))
-    expander = cirq.ExpandComposite(no_decomp=no_decomp)
-    expander(swap_network)
+    swap_network = cirq.expand_composite(swap_network, no_decomp=no_decomp)
     expected_text_diagram = """
 a: ───█───────╲0╱───█─────────────────█───────────╲0╱───█───────0↦1───
       │       │     │                 │           │     │       │
@@ -95,9 +96,6 @@ f: ─────────────────█───────�
     """.strip()
     ct.assert_has_diagram(swap_network, expected_text_diagram)
 
-    no_decomp = lambda op: isinstance(op.gate, cca.CircularShiftGate)
-    expander = cirq.ExpandComposite(no_decomp=no_decomp)
-
     acquaintance_size = 3
     n_parts = 6
     part_lens = (1,) * n_parts
@@ -106,8 +104,8 @@ f: ─────────────────█───────�
         *qubits[:n_qubits]
     )
     swap_network = cirq.Circuit(swap_network_op)
-
-    expander(swap_network)
+    no_decomp = lambda op: isinstance(op.gate, cca.CircularShiftGate)
+    swap_network = cirq.expand_composite(swap_network, no_decomp=no_decomp)
     expected_text_diagram = """
 a: ───╲0╱─────────╲0╱─────────╲0╱─────────
       │           │           │
@@ -127,7 +125,7 @@ f: ───╱1╲─────────╱1╲─────────
 @pytest.mark.parametrize(
     'part_lens', [tuple(randint(1, 3) for _ in range(randint(2, 10))) for _ in range(3)]
 )
-def test_acquaint_part_pairs(part_lens):
+def test_acquaint_part_pairs(part_lens) -> None:
     parts = []
     n_qubits = 0
     for part_len in part_lens:
@@ -135,7 +133,7 @@ def test_acquaint_part_pairs(part_lens):
         n_qubits += part_len
     qubits = cirq.LineQubit.range(n_qubits)
     swap_network_op = cca.SwapNetworkGate(part_lens, acquaintance_size=None)(*qubits)
-    swap_network = cirq.Circuit(swap_network_op, device=cca.UnconstrainedAcquaintanceDevice)
+    swap_network = cirq.Circuit(swap_network_op)
     initial_mapping = {q: i for i, q in enumerate(qubits)}
 
     actual_opps = cca.get_logical_acquaintance_opportunities(swap_network, initial_mapping)
@@ -143,7 +141,7 @@ def test_acquaint_part_pairs(part_lens):
     assert expected_opps == actual_opps
 
 
-acquaintance_sizes: Tuple[Optional[int], ...] = (None,)
+acquaintance_sizes: tuple[int | None, ...] = (None,)
 acquaintance_sizes += tuple(range(5))
 
 
@@ -156,13 +154,13 @@ acquaintance_sizes += tuple(range(5))
         )
     ),
 )
-def test_swap_network_gate_permutation(part_lens, acquaintance_size):
+def test_swap_network_gate_permutation(part_lens, acquaintance_size) -> None:
     n_qubits = sum(part_lens)
     swap_network_gate = cca.SwapNetworkGate(part_lens, acquaintance_size)
     cca.testing.assert_permutation_decomposition_equivalence(swap_network_gate, n_qubits)
 
 
-def test_swap_network_gate_from_ops():
+def test_swap_network_gate_from_ops() -> None:
     n_qubits = 10
     qubits = cirq.LineQubit.range(n_qubits)
     part_lens = (1, 2, 1, 3, 3)
@@ -200,7 +198,7 @@ def test_swap_network_gate_from_ops():
     cirq.testing.assert_has_diagram(circuit, expected_diagram)
 
 
-def test_swap_network_decomposition():
+def test_swap_network_decomposition() -> None:
     qubits = cirq.LineQubit.range(8)
     swap_network_gate = cca.SwapNetworkGate((4, 4), 5)
     operations = cirq.decompose_once_with_qubits(swap_network_gate, qubits)
@@ -225,7 +223,7 @@ def test_swap_network_decomposition():
     ct.assert_has_diagram(circuit, expected_text_diagram)
 
 
-def test_swap_network_init_error():
+def test_swap_network_init_error() -> None:
     with pytest.raises(ValueError):
         cca.SwapNetworkGate(())
     with pytest.raises(ValueError):
@@ -233,13 +231,13 @@ def test_swap_network_init_error():
 
 
 part_lens_and_acquaintance_sizes = [
-    [[l + 1 for l in poisson(size=n_parts, lam=lam)], poisson(4)]
+    [[l + 1 for l in numpy.random.poisson(size=n_parts, lam=lam)], numpy.random.poisson(4)]
     for n_parts, lam in product(range(2, 20, 3), range(1, 4))
 ]
 
 
 @pytest.mark.parametrize('part_lens, acquaintance_size', part_lens_and_acquaintance_sizes)
-def test_swap_network_permutation(part_lens, acquaintance_size):
+def test_swap_network_permutation(part_lens, acquaintance_size) -> None:
     n_qubits = sum(part_lens)
     gate = cca.SwapNetworkGate(part_lens, acquaintance_size)
 
@@ -248,7 +246,7 @@ def test_swap_network_permutation(part_lens, acquaintance_size):
 
 
 @pytest.mark.parametrize('part_lens, acquaintance_size', part_lens_and_acquaintance_sizes)
-def test_swap_network_repr(part_lens, acquaintance_size):
+def test_swap_network_repr(part_lens, acquaintance_size) -> None:
     gate = cca.SwapNetworkGate(part_lens, acquaintance_size)
     ct.assert_equivalent_repr(gate)
 
@@ -258,20 +256,22 @@ class OtherOperation(cirq.Operation):
         self._qubits = tuple(qubits)
 
     @property
-    def qubits(self) -> Tuple[cirq.Qid, ...]:
+    def qubits(self) -> tuple[cirq.Qid, ...]:
         return self._qubits
 
-    def with_qubits(self, *new_qubits: cirq.Qid) -> 'OtherOperation':
-        return type(self)(self._qubits)
+    def with_qubits(self, *new_qubits: cirq.Qid) -> OtherOperation:
+        return type(self)(new_qubits)
 
     def __eq__(self, other):
         return isinstance(other, type(self)) and self.qubits == other.qubits
 
 
-def test_get_acquaintance_size():
+def test_get_acquaintance_size() -> None:
+    qubits: Sequence[cirq.Qid]
     qubits = cirq.LineQubit.range(8)
+    op: cirq.Operation
     op = OtherOperation(qubits)
-    assert op.with_qubits(qubits) == op
+    assert op.with_qubits(*qubits) == op
     assert cca.get_acquaintance_size(op) == 0
 
     for s, _ in enumerate(qubits):
@@ -303,7 +303,7 @@ def test_get_acquaintance_size():
     assert cca.get_acquaintance_size(op) == 0
 
 
-def test_operations_to_part_lens():
+def test_operations_to_part_lens() -> None:
     qubits = cirq.LineQubit.range(6)
     ops = [cirq.CZ(*qubits[1:3]), cirq.XX(*qubits[3:5])]
     part_lens = cca.gates.operations_to_part_lens(qubits, ops)
@@ -321,7 +321,7 @@ def test_operations_to_part_lens():
 @pytest.mark.parametrize(
     'part_len_sets', [set(tuple(randint(1, 5) for _ in range(randint(2, 7))) for _ in range(5))]
 )
-def test_swap_network_gate_equality(part_len_sets):
+def test_swap_network_gate_equality(part_len_sets) -> None:
     acquaintance_sizes = [None, 0, 1, 2, 3]
     swap_gates = [cirq.SWAP, cirq.CNOT]
     equals_tester = ct.EqualsTester()
