@@ -11,7 +11,8 @@ export default {
   },
   devServer: {
     static: path.join(__dirname, 'dist'),
-    public: 'localhost:8080',
+    host: 'localhost',
+    port: 8080,
   },
   module: {
     rules: [
