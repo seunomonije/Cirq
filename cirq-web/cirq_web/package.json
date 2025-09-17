@@ -7,7 +7,7 @@
   "dependencies": {
     "@types/looks-same": "^4.1.0",
     "gts": "^6.0.2",
-    "live-server": "^1.2.2",
+    "five-server": "^0.4.4",
     "tsc-watch": "^7.1.1",
     "typescript": "^5.7.3"
   },
@@ -45,6 +45,7 @@
   "scripts": {
     "start": "webpack serve --mode development",
     "build": "webpack --mode production",
+    "serve": "five-server --open dist",
     "test-e2e": "mocha --spec e2e/**/*.ts --timeout 10000",
     "test": "mocha",
     "test-all": "npm run build && npm run test-e2e && npm run test",
