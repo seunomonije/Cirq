@@ -45,7 +45,6 @@
   "scripts": {
     "start": "webpack serve --mode development",
     "build": "webpack --mode production",
-    "serve": "five-server --open dist",
     "test-e2e": "mocha --spec e2e/**/*.ts --timeout 10000",
     "test": "mocha",
     "test-all": "npm run build && npm run test-e2e && npm run test",
